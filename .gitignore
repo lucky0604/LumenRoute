@@ -1,0 +1,61 @@
+# === Go ===
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+go.work
+
+# === Build output ===
+/bin/
+/dist/
+/build/
+/tmp/
+
+# === Dependencies ===
+/vendor/
+
+# === Node.js / Frontend (web/) ===
+node_modules/
+web/dist/
+web/.vite/
+*.tsbuildinfo
+
+# === Data & Database ===
+/data/
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# === Logs ===
+*.log
+logs/
+
+# === Environment & Secrets ===
+.env
+.env.*
+!.env.example
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# === OS ===
+Thumbs.db
+Desktop.ini
+
+# === Coverage ===
+coverage.txt
+coverage.html
+*.cover
+*.out
+ideas/
