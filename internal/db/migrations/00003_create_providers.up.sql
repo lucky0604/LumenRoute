@@ -1,0 +1,21 @@
+CREATE TABLE providers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  provider_type TEXT NOT NULL DEFAULT 'openai_compatible',
+  engine TEXT NOT NULL DEFAULT 'unknown',
+  base_url TEXT NOT NULL,
+  auth_mode TEXT NOT NULL DEFAULT 'none',
+  upstream_api_key_encrypted TEXT NULL,
+  custom_headers TEXT NULL,
+  health_check_path TEXT NOT NULL DEFAULT '/models',
+  health_status TEXT NOT NULL DEFAULT 'unknown',
+  last_check_at DATETIME NULL,
+  last_status_code INTEGER NULL,
+  last_latency_ms INTEGER NULL,
+  last_error TEXT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+  deleted_at DATETIME NULL,
+  updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);

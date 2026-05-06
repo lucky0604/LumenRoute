@@ -59,3 +59,7 @@ coverage.html
 *.cover
 *.out
 ideas/
+.opencode/
+lumenroute
+.sisyphus/
+tasks/
