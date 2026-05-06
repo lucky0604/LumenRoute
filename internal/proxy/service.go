@@ -10,20 +10,25 @@ import (
 	"time"
 
 	"lumenroute/internal/apikey"
+	"lumenroute/internal/logs"
 	"lumenroute/internal/route"
+
+	"github.com/pkoukk/tiktoken-go"
 )
 
 type Service struct {
 	routeService  *route.Service
 	apiKeyService *apikey.Service
+	logService    *logs.Service
 	proxyAuthMode string
 	client        *http.Client
 }
 
-func NewService(rs *route.Service, aks *apikey.Service, proxyAuthMode string) *Service {
+func NewService(rs *route.Service, aks *apikey.Service, ls *logs.Service, proxyAuthMode string) *Service {
 	return &Service{
 		routeService:  rs,
 		apiKeyService: aks,
+		logService:    ls,
 		proxyAuthMode: proxyAuthMode,
 		client: &http.Client{
 			Timeout: 120 * time.Second,
@@ -106,13 +111,13 @@ func (s *Service) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	streamMode, _ := req["stream"].(bool)
 	if streamMode {
-		s.proxyStream(w, r, target, reqBody)
+		s.proxyStream(w, r, target, reqBody, rt)
 		return
 	}
-	s.proxyNonStream(w, r, target, reqBody)
+	s.proxyNonStream(w, r, target, reqBody, rt, body)
 }
 
-func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte) {
+func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte, rt *route.Route, origBody []byte) {
 	upstreamReq, err := s.buildUpstreamRequest(target, body, r)
 	if err != nil {
 		writeError(w, 502, "upstream_error", "Failed to build upstream request")
@@ -139,16 +144,18 @@ func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
-	_ = latency
+
+	s.recordRequestLog(r, rt, target, resp.StatusCode, latency, false, respBody)
 }
 
-func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte) {
+func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte, rt *route.Route) {
 	upstreamReq, err := s.buildUpstreamRequest(target, body, r)
 	if err != nil {
 		writeError(w, 502, "upstream_error", "Failed to build upstream request")
 		return
 	}
 
+	start := time.Now()
 	resp, err := s.client.Do(upstreamReq)
 	if err != nil {
 		writeError(w, 502, "upstream_connection_failed", "Failed to connect to upstream provider")
@@ -163,28 +170,23 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
+		s.recordStreamLog(r, rt, target, resp.StatusCode, time.Since(start).Milliseconds(), "", body)
 		return
 	}
 
-	done := false
-	buf := make([]byte, 4096)
-	for {
-		n, readErr := resp.Body.Read(buf)
-		if n > 0 {
-			w.Write(buf[:n])
-			flusher.Flush()
-			if bytes.Contains(buf[:n], []byte("[DONE]")) {
-				done = true
-			}
-		}
-		if readErr != nil {
-			break
-		}
-		if r.Context().Err() != nil {
-			break
+	var accumulated strings.Builder
+	scanner := NewSSEScanner(resp.Body)
+	for scanner.Scan() {
+		w.Write(scanner.RawLine())
+		w.Write([]byte("\n"))
+		flusher.Flush()
+
+		delta := scanner.LastDelta()
+		if delta != "" {
+			accumulated.WriteString(delta)
 		}
 	}
-	_ = done
+	s.recordStreamLog(r, rt, target, resp.StatusCode, time.Since(start).Milliseconds(), accumulated.String(), body)
 }
 
 func (s *Service) buildUpstreamRequest(target *route.RouteTarget, body []byte, r *http.Request) (*http.Request, error) {
@@ -236,4 +238,218 @@ func codeToType(code string) string {
 	default:
 		return "upstream_error"
 	}
+}
+
+func (s *Service) recordRequestLog(r *http.Request, rt *route.Route, target *route.RouteTarget, upstreamStatusCode int, latencyMs int64, stream bool, respBody []byte) {
+	if s.logService == nil {
+		return
+	}
+
+	logEntry := logs.RequestLog{
+		RequestID:         logs.GenerateRequestID(""),
+		RouteID:           &rt.ID,
+		RouteName:         rt.Name,
+		PublicModelName:   rt.PublicModelName,
+		UpstreamModelName: target.UpstreamModelName,
+		ProviderID:        &target.ProviderID,
+		ProviderName:      target.ProviderName,
+		TargetID:          &target.ID,
+		ClientIP:          extractClientIP(r),
+		Method:            r.Method,
+		Path:              r.URL.Path,
+		Stream:            stream,
+		StatusCode:        200,
+		UpstreamStatusCode: upstreamStatusCode,
+		LatencyMs:          int(latencyMs),
+	}
+
+	if tokenInfo := extractTokenUsage(respBody); tokenInfo != nil {
+		logEntry.PromptTokens = tokenInfo.PromptTokens
+		logEntry.CompletionTokens = tokenInfo.CompletionTokens
+		logEntry.TotalTokens = tokenInfo.TotalTokens
+	}
+
+	_ = s.logService.Write(logEntry)
+}
+
+func (s *Service) recordStreamLog(r *http.Request, rt *route.Route, target *route.RouteTarget, upstreamStatusCode int, latencyMs int64, completionText string, reqBody []byte) {
+	if s.logService == nil {
+		return
+	}
+
+	logEntry := logs.RequestLog{
+		RequestID:          logs.GenerateRequestID(""),
+		RouteID:            &rt.ID,
+		RouteName:          rt.Name,
+		PublicModelName:    rt.PublicModelName,
+		UpstreamModelName:  target.UpstreamModelName,
+		ProviderID:         &target.ProviderID,
+		ProviderName:       target.ProviderName,
+		TargetID:           &target.ID,
+		ClientIP:           extractClientIP(r),
+		Method:             r.Method,
+		Path:               r.URL.Path,
+		Stream:             true,
+		StatusCode:         200,
+		UpstreamStatusCode: upstreamStatusCode,
+		LatencyMs:          int(latencyMs),
+	}
+
+	if ti := countStreamTokens(completionText, reqBody); ti != nil {
+		logEntry.PromptTokens = ti.PromptTokens
+		logEntry.CompletionTokens = ti.CompletionTokens
+		logEntry.TotalTokens = ti.TotalTokens
+	}
+
+	_ = s.logService.Write(logEntry)
+}
+
+func countStreamTokens(completionText string, reqBody []byte) *tokenInfo {
+	enc, err := tiktoken.GetEncoding(tiktoken.MODEL_CL100K_BASE)
+	if err != nil {
+		return nil
+	}
+
+	var ti tokenInfo
+
+	completionCount := len(enc.Encode(completionText, nil, nil))
+	if completionCount > 0 {
+		ti.CompletionTokens = &completionCount
+	}
+
+	promptText := extractPromptText(reqBody)
+	promptCount := len(enc.Encode(promptText, nil, nil))
+	if promptCount > 0 {
+		ti.PromptTokens = &promptCount
+	}
+
+	total := promptCount + completionCount
+	ti.TotalTokens = &total
+	return &ti
+}
+
+func extractPromptText(reqBody []byte) string {
+	var req struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(reqBody, &req); err != nil {
+		return ""
+	}
+	var sb strings.Builder
+	for _, msg := range req.Messages {
+		sb.WriteString(msg.Role)
+		sb.WriteString(": ")
+		sb.WriteString(msg.Content)
+		sb.WriteString("\n")
+	}
+	return sb.String()
+}
+
+type SSEScanner struct {
+	reader    io.Reader
+	buf       []byte
+	rawLine   []byte
+	lastDelta string
+}
+
+func NewSSEScanner(r io.Reader) *SSEScanner {
+	return &SSEScanner{reader: r, buf: make([]byte, 4096)}
+}
+
+func (s *SSEScanner) Scan() bool {
+	for {
+		n, err := s.reader.Read(s.buf)
+		if n == 0 {
+			return false
+		}
+		s.lastDelta = ""
+		lines := bytes.Split(s.buf[:n], []byte("\n"))
+		for _, line := range lines {
+			s.rawLine = line
+			if bytes.HasPrefix(line, []byte("data: ")) {
+				payload := bytes.TrimPrefix(line, []byte("data: "))
+				if bytes.Equal(payload, []byte("[DONE]")) {
+					return false
+				}
+				s.lastDelta = parseDelta(payload)
+				return true
+			}
+		}
+		if err != nil {
+			return false
+		}
+	}
+}
+
+func (s *SSEScanner) RawLine() []byte {
+	return s.rawLine
+}
+
+func (s *SSEScanner) LastDelta() string {
+	return s.lastDelta
+}
+
+func parseDelta(payload []byte) string {
+	var chunk struct {
+		Choices []struct {
+			Delta struct {
+				Content string `json:"content"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(payload, &chunk); err != nil {
+		return ""
+	}
+	if len(chunk.Choices) > 0 {
+		return chunk.Choices[0].Delta.Content
+	}
+	return ""
+}
+
+type tokenInfo struct {
+	PromptTokens     *int
+	CompletionTokens *int
+	TotalTokens      *int
+}
+
+func extractTokenUsage(body []byte) *tokenInfo {
+	var resp struct {
+		Usage struct {
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(body, &resp); err != nil || resp.Usage.PromptTokens == 0 && resp.Usage.TotalTokens == 0 {
+		return nil
+	}
+	var info tokenInfo
+	if resp.Usage.PromptTokens > 0 {
+		v := resp.Usage.PromptTokens; info.PromptTokens = &v
+	}
+	if resp.Usage.CompletionTokens > 0 {
+		v := resp.Usage.CompletionTokens; info.CompletionTokens = &v
+	}
+	if resp.Usage.TotalTokens > 0 {
+		v := resp.Usage.TotalTokens; info.TotalTokens = &v
+	}
+	return &info
+}
+
+func extractClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return xri
+	}
+	host := r.RemoteAddr
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		return host[:idx]
+	}
+	return host
 }

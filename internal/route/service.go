@@ -190,7 +190,7 @@ func (s *Service) GetReadyTargets(routeID int64) ([]RouteTarget, error) {
 	rows, err := s.db.Query(`
 		SELECT rt.id, rt.route_id, rt.provider_id, rt.upstream_model_name, rt.weight, rt.timeout_seconds,
 		       rt.enabled, rt.created_at, rt.updated_at,
-		       p.base_url
+		       p.base_url, p.name
 		FROM route_targets rt
 		INNER JOIN providers p ON p.id = rt.provider_id
 		WHERE rt.route_id = ? AND rt.enabled = 1 AND p.enabled = 1 AND p.health_status = 'healthy'
@@ -203,10 +203,12 @@ func (s *Service) GetReadyTargets(routeID int64) ([]RouteTarget, error) {
 	var ts []RouteTarget
 	for rows.Next() {
 		var t RouteTarget
+		var providerName sql.NullString
 		if err := rows.Scan(&t.ID, &t.RouteID, &t.ProviderID, &t.UpstreamModelName, &t.Weight, &t.TimeoutSeconds,
-			&t.Enabled, &t.CreatedAt, &t.UpdatedAt, &t.ProviderBaseURL); err != nil {
+			&t.Enabled, &t.CreatedAt, &t.UpdatedAt, &t.ProviderBaseURL, &providerName); err != nil {
 			return nil, err
 		}
+		if providerName.Valid { t.ProviderName = providerName.String }
 		ts = append(ts, t)
 	}
 	return ts, rows.Err()

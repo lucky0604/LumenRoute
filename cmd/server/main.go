@@ -47,7 +47,7 @@ func main() {
 	apiKeySvc := apikey.NewService(database, cfg.APIKeyPrefix)
 	logsSvc := logs.NewService(database)
 	metricsReg := metrics.NewRegistry()
-	proxySvc := proxy.NewService(routeSvc, apiKeySvc, cfg.ProxyAuthMode)
+	proxySvc := proxy.NewService(routeSvc, apiKeySvc, logsSvc, cfg.ProxyAuthMode)
 
 	handlers := &api.AdminHandlers{
 		Providers: providerSvc,
