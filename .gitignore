@@ -62,8 +62,8 @@ coverage.html
 
 # === Local-only ===
 agent_flow/
-server
+/server
+/lumenroute
 .opencode/
-lumenroute
 .sisyphus/
 tasks/
