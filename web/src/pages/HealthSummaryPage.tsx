@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { Typography, Card, Tag, Table, Space } from "antd";
+import { Typography, Card, Tag, Table, Space, Button } from "antd";
+import { BarChartOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 
 const { Title } = Typography;
@@ -30,6 +31,9 @@ function HealthSummaryPage() {
             <Tag color="green">{healthy.length} Healthy</Tag>
             <Tag color="red">{unhealthy.length} Unhealthy</Tag>
             <Tag>{providers.length} Total</Tag>
+            <Button type="link" icon={<BarChartOutlined />} onClick={() => navigate("/model-performance")}>
+              Model Performance
+            </Button>
           </Space>
         </Card>
 

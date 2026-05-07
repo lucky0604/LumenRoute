@@ -25,7 +25,7 @@ function RequestLogsPage() {
       const params = new URLSearchParams();
       if (model) params.set("model", model);
       if (provider) params.set("provider", provider);
-      if (statusFilter) params.set("status", statusFilter);
+      if (statusFilter) params.set("status_code", statusFilter);
       if (errorOnly) params.set("error_only", "true");
       const res = await fetch(`/api/request-logs?${params}`, { credentials: "include" });
       if (res.ok) setLogs(await res.json());

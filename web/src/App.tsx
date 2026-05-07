@@ -6,6 +6,8 @@ import RoutesPage from "./pages/RoutesPage";
 import ApiKeysPage from "./pages/ApiKeysPage";
 import RequestLogsPage from "./pages/RequestLogsPage";
 import HealthSummaryPage from "./pages/HealthSummaryPage";
+import ModelPerformancePage from "./pages/ModelPerformancePage";
+import TargetDiagnosisPage from "./pages/TargetDiagnosisPage";
 import AdminLayout from "./components/AdminLayout";
 
 const themeConfig = {
@@ -37,6 +39,8 @@ function App() {
             <Route path="/routes" element={<RoutesPage />} />
             <Route path="/api-keys" element={<ApiKeysPage />} />
             <Route path="/request-logs" element={<RequestLogsPage />} />
+            <Route path="/model-performance" element={<ModelPerformancePage />} />
+            <Route path="/diagnostics/targets/:id" element={<TargetDiagnosisPage />} />
             <Route path="/health" element={<HealthSummaryPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/login" replace />} />

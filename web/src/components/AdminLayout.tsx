@@ -8,6 +8,7 @@ import {
   FileSearchOutlined,
   HeartOutlined,
   LogoutOutlined,
+  BarChartOutlined,
 } from "@ant-design/icons";
 
 const { Sider, Header, Content } = Layout;
@@ -28,6 +29,7 @@ const menuItems = [
     label: "Operations",
     type: "group" as const,
     children: [
+      { key: "/model-performance", icon: <BarChartOutlined />, label: "Model Performance" },
       { key: "/request-logs", icon: <FileSearchOutlined />, label: "Request Logs" },
       { key: "/health", icon: <HeartOutlined />, label: "Health Summary" },
     ],

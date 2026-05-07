@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Typography, Table, Button, Modal, Form, Input, InputNumber, Space, Tag, Popconfirm, Drawer, Select, Switch } from "antd";
-import { PlusOutlined, SettingOutlined } from "@ant-design/icons";
+import { PlusOutlined, SettingOutlined, SearchOutlined } from "@ant-design/icons";
 
 const { Title } = Typography;
 
@@ -35,6 +36,7 @@ function RoutesPage() {
   const [targets, setTargets] = useState<Target[]>([]);
   const [routeForm] = Form.useForm();
   const [targetForm] = Form.useForm();
+  const navigate = useNavigate();
 
   const fetchRoutes = useCallback(async () => {
     setLoading(true);
@@ -81,6 +83,9 @@ function RoutesPage() {
     { title: "Weight", dataIndex: "weight", key: "weight" },
     { title: "Timeout (s)", dataIndex: "timeout_seconds", key: "timeout" },
     { title: "Status", key: "status", render: (_: unknown, t: Target) => targetStatus(t) },
+    { title: "", key: "diagnose", width: 90, render: (_: unknown, t: Target) => (
+      <Button size="small" type="link" icon={<SearchOutlined />} onClick={(e) => { e.stopPropagation(); navigate(`/diagnostics/targets/${t.id}`); }}>Diagnose</Button>
+    )},
     { title: "", key: "act", render: (_: unknown, t: Target) => (
       <Popconfirm title="Delete this target?" onConfirm={async () => { await fetch(`/api/route-targets/${t.id}`, { method: "DELETE", credentials: "include" }); if (selectedRoute) fetchTargets(selectedRoute.id); }}>
         <Button size="small" danger>Delete</Button>
