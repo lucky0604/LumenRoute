@@ -17,6 +17,7 @@ import (
 	"lumenroute/internal/auth"
 	"lumenroute/internal/config"
 	"lumenroute/internal/db"
+	"lumenroute/internal/diagnostics"
 	"lumenroute/internal/logs"
 	"lumenroute/internal/metrics"
 	"lumenroute/internal/provider"
@@ -47,7 +48,8 @@ func main() {
 	apiKeySvc := apikey.NewService(database, cfg.APIKeyPrefix)
 	logsSvc := logs.NewService(database)
 	metricsReg := metrics.NewRegistry()
-	proxySvc := proxy.NewService(routeSvc, apiKeySvc, logsSvc, cfg.ProxyAuthMode)
+	proxySvc := proxy.NewService(routeSvc, apiKeySvc, logsSvc, cfg.ProxyAuthMode, metricsReg)
+	diagSvc := diagnostics.NewService(database, routeSvc, providerSvc)
 
 	handlers := &api.AdminHandlers{
 		Providers: providerSvc,
@@ -55,6 +57,8 @@ func main() {
 		APIKeys:   apiKeySvc,
 		Logs:      logsSvc,
 	}
+
+	diagHandler := &api.DiagnosticsHandler{Service: diagSvc}
 
 	sessionManager := auth.NewSessionManager(database, cfg.ServerHost != "0.0.0.0", 24*time.Hour)
 	mux := http.NewServeMux()
@@ -101,6 +105,7 @@ func main() {
 	// Admin CRUD endpoints (session-protected)
 	adminMux := http.NewServeMux()
 	registerAdminRoutes(adminMux, handlers)
+	api.RegisterDiagnosticsRoutes(adminMux, diagHandler)
 	adminHandler := sessionManager.Middleware(adminMux)
 	mux.Handle("/api/", adminHandler)
 
@@ -135,7 +140,7 @@ func main() {
 
 	// Start background schedulers
 	quit := make(chan struct{})
-	scheduler.StartHealthChecker(providerSvc, cfg.HealthCheckIntervalSec, quit)
+	scheduler.StartHealthChecker(providerSvc, cfg.HealthCheckIntervalSec, quit, metricsReg)
 	scheduler.StartLogCleanup(database, cfg.RequestLogRetentionDays, quit)
 
 	srv := &http.Server{

@@ -5,10 +5,11 @@ import (
 	"net/http"
 	"time"
 
+	"lumenroute/internal/metrics"
 	"lumenroute/internal/provider"
 )
 
-func StartHealthChecker(ps *provider.Service, intervalSeconds int, quit <-chan struct{}) {
+func StartHealthChecker(ps *provider.Service, intervalSeconds int, quit <-chan struct{}, rec metrics.Recorder) {
 	if intervalSeconds <= 0 {
 		intervalSeconds = 30
 	}
@@ -24,10 +25,21 @@ func StartHealthChecker(ps *provider.Service, intervalSeconds int, quit <-chan s
 					log.Printf("health checker list providers: %v", err)
 					continue
 				}
+				var healthy, unhealthy int64
 				for _, p := range providers {
-					if !p.Enabled { continue }
+					if !p.Enabled {
+						continue
+					}
 					status, code, latency, lastErr := checkProvider(client, p.BaseURL, p.HealthCheckPath)
 					ps.UpdateHealth(p.ID, status, code, latency, lastErr)
+					if status == "healthy" {
+						healthy++
+					} else {
+						unhealthy++
+					}
+				}
+				if rec != nil {
+					rec.SetProviderHealthCounts(healthy, unhealthy)
 				}
 			case <-quit:
 				return
