@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Typography, Table, Button, Space, Tag, Alert, Segmented, Statistic, Card } from "antd";
+import { Typography, Table, Button, Space, Alert, Segmented, Statistic, Card } from "antd";
 import { ReloadOutlined, WarningOutlined } from "@ant-design/icons";
+import StatusChip from "../components/StatusChip";
+import EmptyState from "../components/EmptyState";
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 interface ModelSummary {
   public_model_name: string;
@@ -27,22 +29,18 @@ interface OverviewResponse {
   models: ModelSummary[];
 }
 
-function severityTag(m: ModelSummary) {
-  if (m.request_count === 0) return <Tag color="default">No traffic</Tag>;
-  if (m.error_rate > 0.05 || (m.last_error_code && m.last_error_code !== "")) {
-    return <Tag color="red">Failing</Tag>;
-  }
-  if (m.avg_latency_ms > 10000 || m.stream_completed_rate < 0.95) {
-    return <Tag color="orange">Degraded</Tag>;
-  }
-  return <Tag color="green">Healthy</Tag>;
-}
-
 function severityRank(m: ModelSummary): number {
   if (m.request_count === 0) return 0;
   if (m.error_rate > 0.05 || (m.last_error_code && m.last_error_code !== "")) return 3;
   if (m.avg_latency_ms > 10000 || m.stream_completed_rate < 0.95) return 2;
   return 1;
+}
+
+function severityLabel(m: ModelSummary) {
+  if (m.request_count === 0) return "No traffic";
+  if (m.error_rate > 0.05 || (m.last_error_code && m.last_error_code !== "")) return "Unhealthy";
+  if (m.avg_latency_ms > 10000 || m.stream_completed_rate < 0.95) return "Degraded";
+  return "Healthy";
 }
 
 function ModelPerformancePage() {
@@ -89,18 +87,20 @@ function ModelPerformancePage() {
 
   const columns = [
     {
-      title: "Severity", key: "severity", width: 90,
+      title: "Severity", key: "severity", width: 100,
       sorter: (a: ModelSummary, b: ModelSummary) => severityRank(b) - severityRank(a),
-      render: (_: unknown, r: ModelSummary) => severityTag(r),
+      render: (_: unknown, r: ModelSummary) => <StatusChip label={severityLabel(r)} />,
     },
     {
       title: "Public Model", dataIndex: "public_model_name", key: "pub", ellipsis: true, width: 160,
+      render: (v: string) => <span className="mono">{v}</span>,
     },
     {
       title: "Upstream Model", dataIndex: "upstream_model_name", key: "up", ellipsis: true, width: 160,
+      render: (v: string) => <span className="mono">{v}</span>,
     },
     {
-      title: "Provider", dataIndex: "provider_name", key: "prov", ellipsis: true, width: 180,
+      title: "Provider", dataIndex: "provider_name", key: "prov", ellipsis: true, width: 160,
     },
     {
       title: "Target", dataIndex: "target_id", key: "tid", width: 70,
@@ -110,19 +110,19 @@ function ModelPerformancePage() {
       sorter: (a: ModelSummary, b: ModelSummary) => a.request_count - b.request_count,
     },
     {
-      title: "Err%", key: "errpct", width: 80,
+      title: "Err%", key: "errpct", width: 75,
       sorter: (a: ModelSummary, b: ModelSummary) => a.error_rate - b.error_rate,
       render: (_: unknown, r: ModelSummary) =>
         r.request_count > 0 ? `${(r.error_rate * 100).toFixed(1)}%` : "-",
     },
     {
-      title: "Avg (ms)", key: "avg", width: 90,
+      title: "Avg ms", key: "avg", width: 80,
       sorter: (a: ModelSummary, b: ModelSummary) => a.avg_latency_ms - b.avg_latency_ms,
       render: (_: unknown, r: ModelSummary) =>
         r.request_count > 0 ? Math.round(r.avg_latency_ms).toLocaleString() : "-",
     },
     {
-      title: "P95 (ms)", key: "p95", width: 90,
+      title: "P95 ms", key: "p95", width: 80,
       sorter: (a: ModelSummary, b: ModelSummary) => a.p95_latency_ms - b.p95_latency_ms,
       render: (_: unknown, r: ModelSummary) =>
         r.request_count > 0 ? Math.round(r.p95_latency_ms).toLocaleString() : "-",
@@ -133,8 +133,8 @@ function ModelPerformancePage() {
         r.stream_count > 0 ? `${(r.stream_completed_rate * 100).toFixed(1)}%` : "-",
     },
     {
-      title: "Last Error", dataIndex: "last_error_code", key: "lerr", ellipsis: true, width: 140,
-      render: (v: string) => v ? <Tag color="red">{v}</Tag> : null,
+      title: "Last Error", dataIndex: "last_error_code", key: "lerr", ellipsis: true, width: 120,
+      render: (v: string) => v ? <span className="mono">{v}</span> : null,
     },
     {
       title: "Last Seen", dataIndex: "last_seen_at", key: "ls", width: 150,
@@ -150,19 +150,20 @@ function ModelPerformancePage() {
     },
   ];
 
+  const empty = sortedModels.length === 0;
+
   return (
     <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16, justifyContent: "space-between", width: "100%" }}>
-        <Title level={3} style={{ margin: 0 }}>Model Performance</Title>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>Model Performance</Title>
+          <Text type="secondary">Monitor latency, error rate, and stream health across all targets.</Text>
+        </div>
         <Space>
-          <Segmented
-            options={["5m", "1h", "24h"]}
-            value={window}
-            onChange={(v) => setWindow(v as string)}
-          />
+          <Segmented options={["5m", "1h", "24h"]} value={window} onChange={(v) => setWindow(v as string)} />
           <Button icon={<ReloadOutlined />} onClick={fetchData}>Refresh</Button>
         </Space>
-      </Space>
+      </div>
 
       {error && (
         <Alert
@@ -170,8 +171,10 @@ function ModelPerformancePage() {
           message="Failed to load model performance data"
           description={error}
           showIcon
+          closable
           action={<Button size="small" onClick={fetchData}>Retry</Button>}
           style={{ marginBottom: 16 }}
+          role="alert"
         />
       )}
 
@@ -186,23 +189,35 @@ function ModelPerformancePage() {
           <Statistic title="Worst P95" value={worstP95} suffix="ms" />
         </Card>
         <Card size="small" style={{ minWidth: 120 }}>
-          <Statistic title="Failing" value={failingCount} prefix={failingCount > 0 ? <WarningOutlined /> : undefined} valueStyle={failingCount > 0 ? { color: "#EF4444" } : undefined} />
+          <Statistic title="Failing" value={failingCount}
+            prefix={failingCount > 0 ? <WarningOutlined /> : undefined}
+            valueStyle={failingCount > 0 ? { color: "#EF4444" } : undefined} />
         </Card>
         <Card size="small" style={{ minWidth: 120 }}>
           <Statistic title="Incomplete Streams" value={incompleteStreams} />
         </Card>
       </Space>
 
-      <Table
-        columns={columns}
-        dataSource={sortedModels}
-        rowKey={(r) => `${r.target_id}-${r.public_model_name}`}
-        loading={loading}
-        size="small"
-        scroll={{ x: 1400 }}
-        pagination={false}
-        locale={{ emptyText: "No request logs in this window" }}
-      />
+      <div className="table-wrapper">
+        <Table
+          columns={columns}
+          dataSource={empty ? [] : sortedModels}
+          rowKey={(r) => `${r.target_id}-${r.public_model_name}`}
+          loading={loading && !error}
+          size="small"
+          scroll={{ x: 1400 }}
+          pagination={false}
+          locale={{
+            emptyText: empty && !loading && !error ? (
+              <EmptyState
+                reason="No request logs in this window. Try a wider time range or check Request Logs for filtered results."
+                action="View Request Logs"
+                onAction={() => navigate("/request-logs")}
+              />
+            ) : undefined,
+          }}
+        />
+      </div>
     </div>
   );
 }

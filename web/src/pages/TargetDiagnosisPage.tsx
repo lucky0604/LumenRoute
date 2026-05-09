@@ -1,7 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Typography, Descriptions, Table, Button, Space, Tag, Alert, Segmented, Card, Row, Col, List, Statistic, message } from "antd";
+import { Typography, Descriptions, Table, Button, Space, Alert, Segmented, Card, Row, Col, List, Statistic, message } from "antd";
 import { ReloadOutlined, CopyOutlined, FileSearchOutlined } from "@ant-design/icons";
+import StatusChip from "../components/StatusChip";
+import EmptyState from "../components/EmptyState";
+import type { StatusLabel } from "../components/StatusChip";
 
 const { Title, Text } = Typography;
 
@@ -35,18 +38,18 @@ interface TargetDiagnosisData {
   operator_commands: { models_curl: string };
 }
 
-function healthTag(status: string) {
-  if (status === "healthy") return <Tag color="green">Healthy</Tag>;
-  if (status === "unhealthy") return <Tag color="red">Unhealthy</Tag>;
-  if (status === "deleted") return <Tag color="red">Deleted</Tag>;
-  return <Tag color="default">{status || "Unknown"}</Tag>;
+function providerHealthLabel(status: string): StatusLabel {
+  if (status === "healthy") return "Healthy";
+  if (status === "unhealthy") return "Unhealthy";
+  if (status === "deleted") return "Unhealthy";
+  return "Unknown";
 }
 
-function requestHealthTag(rate: number, count: number) {
-  if (count === 0) return <Tag color="default">No traffic</Tag>;
-  if (rate > 0.05) return <Tag color="red">Failing</Tag>;
-  if (rate > 0.01) return <Tag color="orange">Degraded</Tag>;
-  return <Tag color="green">Healthy</Tag>;
+function requestHealthLabel(rate: number, count: number): StatusLabel {
+  if (count === 0) return "No traffic";
+  if (rate > 0.05) return "Unhealthy";
+  if (rate > 0.01) return "Degraded";
+  return "Healthy";
 }
 
 function TargetDiagnosisPage() {
@@ -86,7 +89,8 @@ function TargetDiagnosisPage() {
     return (
       <div style={{ padding: 24 }}>
         <Alert type="error" message="Failed to load target diagnosis" description={error} showIcon
-          action={<Button size="small" onClick={fetchData}>Retry</Button>} />
+          action={<Button size="small" onClick={fetchData}>Retry</Button>}
+          role="alert" />
       </div>
     );
   }
@@ -96,23 +100,26 @@ function TargetDiagnosisPage() {
 
   const failureCols = [
     { title: "Time", dataIndex: "created_at", key: "t", width: 150, render: (v: string) => new Date(v).toLocaleString() },
-    { title: "Status", dataIndex: "upstream_status_code", key: "s", width: 70, render: (v: number) => <Tag color="red">{v}</Tag> },
-    { title: "Error", dataIndex: "error_code", key: "e", ellipsis: true, render: (v: string) => v || "-" },
+    { title: "Status", dataIndex: "upstream_status_code", key: "s", width: 70, render: () => <StatusChip label="Unhealthy" /> },
+    { title: "Error", dataIndex: "error_code", key: "e", ellipsis: true, render: (v: string) => v ? <span className="mono">{v}</span> : "-" },
     { title: "Latency", dataIndex: "latency_ms", key: "l", width: 80, render: (v: number) => `${v}ms` },
   ];
 
   const slowCols = [
     { title: "Time", dataIndex: "created_at", key: "t", width: 150, render: (v: string) => new Date(v).toLocaleString() },
-    { title: "Status", dataIndex: "status_code", key: "s", width: 70, render: (v: number) => <Tag color={v >= 400 ? "red" : "green"}>{v}</Tag> },
-    { title: "Error", dataIndex: "error_code", key: "e", ellipsis: true, render: (v: string) => v ? <Tag color="red">{v}</Tag> : null },
+    { title: "Status", dataIndex: "status_code", key: "s", width: 70, render: (v: number) => <StatusChip label={v >= 400 ? "Unhealthy" : "Healthy"} /> },
+    { title: "Error", dataIndex: "error_code", key: "e", ellipsis: true, render: (v: string) => v ? <span className="mono">{v}</span> : null },
     { title: "Latency", dataIndex: "latency_ms", key: "l", width: 80, render: (v: number) => `${v}ms` },
-    { title: "Stream", dataIndex: "stream_completed", key: "sc", width: 80,
-      render: (v: boolean | null) => v === null ? "-" : v ? <Tag color="green">Done</Tag> : <Tag color="red">Incomplete</Tag> },
+    { title: "Stream", dataIndex: "stream_completed", key: "sc", width: 100,
+      render: (v: boolean | null) => v === null ? "-" : <StatusChip label={v ? "Healthy" : "Unhealthy"} /> },
   ];
+
+  const failuresEmpty = !data?.recent_failures?.length;
+  const slowEmpty = !data?.slow_requests?.length;
 
   return (
     <div style={{ padding: 24 }}>
-      <Space style={{ marginBottom: 16, justifyContent: "space-between", width: "100%" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
         <div>
           <Title level={3} style={{ margin: 0 }}>
             {t?.public_model_name || "Loading..."} / Target #{id}
@@ -125,7 +132,13 @@ function TargetDiagnosisPage() {
           <Segmented options={["5m", "1h", "24h"]} value={window} onChange={(v) => setWindow(v as string)} />
           <Button icon={<ReloadOutlined />} onClick={fetchData}>Refresh</Button>
         </Space>
-      </Space>
+      </div>
+
+      {error && data && (
+        <Alert type="error" message="Partial load failure" description={error}
+          showIcon closable style={{ marginBottom: 16 }} role="alert"
+          action={<Button size="small" onClick={fetchData}>Retry</Button>} />
+      )}
 
       {loading && !data ? (
         <Card loading style={{ marginBottom: 16 }} />
@@ -134,11 +147,11 @@ function TargetDiagnosisPage() {
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col xs={12} sm={6}>
               <Card size="small"><Statistic title="Request Health"
-                valueRender={() => requestHealthTag(s?.error_rate || 0, s?.request_count || 0)} /></Card>
+                valueRender={() => <StatusChip label={requestHealthLabel(s?.error_rate || 0, s?.request_count || 0)} />} /></Card>
             </Col>
             <Col xs={12} sm={6}>
               <Card size="small"><Statistic title="Provider Health"
-                valueRender={() => healthTag(t?.provider_health || "unknown")} /></Card>
+                valueRender={() => <StatusChip label={providerHealthLabel(t?.provider_health || "unknown")} />} /></Card>
             </Col>
             <Col xs={12} sm={6}>
               <Card size="small"><Statistic title="Stream Done"
@@ -153,20 +166,22 @@ function TargetDiagnosisPage() {
           {t && (
             <Card size="small" title="Routing Facts" style={{ marginBottom: 16 }}>
               <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered>
-                <Descriptions.Item label="Public Model">{t.public_model_name}</Descriptions.Item>
-                <Descriptions.Item label="Upstream Model">{t.upstream_model_name}</Descriptions.Item>
+                <Descriptions.Item label="Public Model"><span className="mono">{t.public_model_name}</span></Descriptions.Item>
+                <Descriptions.Item label="Upstream Model"><span className="mono">{t.upstream_model_name}</span></Descriptions.Item>
                 <Descriptions.Item label="Provider">{t.provider_name}</Descriptions.Item>
                 <Descriptions.Item label="Base URL">
-                  <Text copyable={{ text: t.provider_base_url }}>{t.provider_base_url}</Text>
+                  <Text copyable={{ text: t.provider_base_url }} className="mono">{t.provider_base_url}</Text>
                 </Descriptions.Item>
-                <Descriptions.Item label="Engine">{t.provider_engine}</Descriptions.Item>
-                <Descriptions.Item label="Health">{healthTag(t.provider_health)}</Descriptions.Item>
+                <Descriptions.Item label="Engine"><span className="mono">{t.provider_engine}</span></Descriptions.Item>
+                <Descriptions.Item label="Health"><StatusChip label={providerHealthLabel(t.provider_health)} /></Descriptions.Item>
                 {t.last_check_at && <Descriptions.Item label="Last Check">{new Date(t.last_check_at).toLocaleString()}</Descriptions.Item>}
                 {t.last_provider_error && <Descriptions.Item label="Last Error"><Text type="danger">{t.last_provider_error}</Text></Descriptions.Item>}
               </Descriptions>
               <Space style={{ marginTop: 12 }}>
-                <Button size="small" icon={<CopyOutlined />} onClick={() => copyText(t.provider_base_url, "Provider URL")}>Copy Provider URL</Button>
+                <Button size="small" icon={<CopyOutlined />} onClick={() => copyText(t.provider_base_url, "Provider URL")}
+                  aria-label="Copy provider URL">Copy Provider URL</Button>
                 <Button size="small" icon={<CopyOutlined />}
+                  aria-label="Copy v1 models curl command"
                   onClick={() => copyText(data?.operator_commands?.models_curl || "", "Curl command")}>
                   Copy /v1/models Curl
                 </Button>
@@ -181,26 +196,36 @@ function TargetDiagnosisPage() {
           <Row gutter={16} style={{ marginBottom: 16 }}>
             <Col xs={24} lg={12}>
               <Card size="small" title="Recent Failures" style={{ height: "100%" }}>
-                <Table columns={failureCols} dataSource={data?.recent_failures || []} rowKey="id"
-                  size="small" pagination={false} scroll={{ x: 400 }}
-                  locale={{ emptyText: "No failures recorded" }} />
+                {failuresEmpty && !loading ? (
+                  <EmptyState reason="No failures recorded in this window." compact />
+                ) : (
+                  <div className="table-wrapper">
+                    <Table columns={failureCols} dataSource={data?.recent_failures || []} rowKey="id"
+                      size="small" pagination={false} scroll={{ x: 400 }} />
+                  </div>
+                )}
               </Card>
             </Col>
             <Col xs={24} lg={12}>
               <Card size="small" title="Slow Requests" style={{ height: "100%" }}>
-                <Table columns={slowCols} dataSource={data?.slow_requests || []} rowKey="id"
-                  size="small" pagination={false} scroll={{ x: 400 }}
-                  locale={{ emptyText: "No slow requests in this window" }} />
+                {slowEmpty && !loading ? (
+                  <EmptyState reason="No slow requests in this window." compact />
+                ) : (
+                  <div className="table-wrapper">
+                    <Table columns={slowCols} dataSource={data?.slow_requests || []} rowKey="id"
+                      size="small" pagination={false} scroll={{ x: 400 }} />
+                  </div>
+                )}
               </Card>
             </Col>
           </Row>
 
-          <Card size="small" title="Operator Next Checks">
+          <Card size="small" title="Next Checks">
             <List
               size="small"
               dataSource={[
                 `Verify upstream: ${data?.operator_commands?.models_curl || "N/A"}`,
-                `Check GPU host with nvidia-smi for resource usage`,
+                "Check GPU host with nvidia-smi for resource usage",
                 `Inspect service logs for ${t?.provider_name || "provider"}`,
               ]}
               renderItem={(item) => <List.Item>{item}</List.Item>}
