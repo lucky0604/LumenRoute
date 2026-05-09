@@ -1,5 +1,8 @@
+import { useState, useCallback, useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ConfigProvider, App as AntApp } from "antd";
+import { buildThemeConfig } from "./theme/tokens";
+import type { ThemeMode } from "./theme/tokens";
 import LoginPage from "./pages/LoginPage";
 import ProvidersPage from "./pages/ProvidersPage";
 import RoutesPage from "./pages/RoutesPage";
@@ -8,33 +11,41 @@ import RequestLogsPage from "./pages/RequestLogsPage";
 import HealthSummaryPage from "./pages/HealthSummaryPage";
 import ModelPerformancePage from "./pages/ModelPerformancePage";
 import TargetDiagnosisPage from "./pages/TargetDiagnosisPage";
+import ControlCenterPage from "./pages/ControlCenterPage";
 import AdminLayout from "./components/AdminLayout";
 
-const themeConfig = {
-  token: {
-    colorPrimary: "#2563EB",
-    colorSuccess: "#10B981",
-    colorWarning: "#F59E0B",
-    colorError: "#EF4444",
-    colorInfo: "#6366F1",
-    colorBgLayout: "#F8FAFC",
-    colorBgContainer: "#FFFFFF",
-    colorBorder: "#E2E8F0",
-    colorBorderSecondary: "#E2E8F0",
-    colorText: "#0F172A",
-    colorTextSecondary: "#64748B",
-    borderRadius: 6,
-    fontFamily: `Inter, "Fira Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`,
-  },
-};
+const THEME_STORAGE_KEY = "lumenroute-theme";
+
+function getInitialTheme(): ThemeMode {
+  const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+  if (stored === "dark" || stored === "light") return stored;
+  return "dark";
+}
 
 function App() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
+  const themeConfig = buildThemeConfig(themeMode);
+
+  const toggleTheme = useCallback(() => {
+    setThemeMode((prev) => {
+      const next = prev === "dark" ? "light" : "dark";
+      window.localStorage.setItem(THEME_STORAGE_KEY, next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", themeMode);
+  }, [themeMode]);
+
   return (
     <ConfigProvider theme={themeConfig}>
       <AntApp>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
-          <Route element={<AdminLayout />}>
+          <Route path="/" element={<Navigate to="/login" replace />} />
+          <Route element={<AdminLayout themeMode={themeMode} onToggleTheme={toggleTheme} />}>
+            <Route path="/control-center" element={<ControlCenterPage />} />
             <Route path="/providers" element={<ProvidersPage />} />
             <Route path="/routes" element={<RoutesPage />} />
             <Route path="/api-keys" element={<ApiKeysPage />} />
