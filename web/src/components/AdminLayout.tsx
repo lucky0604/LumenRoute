@@ -54,7 +54,7 @@ const menuItems = [
     label: "Diagnose",
     type: "group" as const,
     children: [
-      { key: "/diagnostics/targets", icon: <BugOutlined />, label: "Target Diagnosis" },
+      { key: "/model-performance", icon: <BugOutlined />, label: "Target Diagnosis" },
     ],
   },
 ];
