@@ -10,6 +10,8 @@ RUN npm run build
 FROM golang:1.25-alpine AS backend
 WORKDIR /build
 COPY go.mod go.sum ./
+# Use Go proxy for Chinese network
+ENV GOPROXY=https://goproxy.cn,direct
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
