@@ -109,3 +109,12 @@ If actual tooling differs, update this file and `CLAUDE.md` together.
 - `docs/` is empty today; root guidance is enough there for now.
 - `ideas/` is distinct enough to carry its own local `AGENTS.md`.
 - Prefer shallow documentation hierarchy until real implementation complexity appears.
+
+
+<claude-mem-context>
+# Memory Context
+
+# [LumenRoute] recent context, 2026-05-29 5:00pm GMT+8
+
+No previous sessions found.
+</claude-mem-context>

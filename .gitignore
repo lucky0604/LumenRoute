@@ -26,6 +26,7 @@ web/.vite/
 
 # === Data & Database ===
 /data/
+**/bootstrap-admin-password
 *.db
 *.db-journal
 *.db-wal
@@ -34,7 +35,7 @@ web/.vite/
 
 # === Logs ===
 *.log
-logs/
+/logs/
 
 # === Environment & Secrets ===
 .env
@@ -58,8 +59,12 @@ coverage.txt
 coverage.html
 *.cover
 *.out
-ideas/
+
+# === Local-only ===
+agent_flow/
+/server
+/lumenroute
 .opencode/
-lumenroute
+.claude/
 .sisyphus/
 tasks/

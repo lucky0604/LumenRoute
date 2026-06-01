@@ -1,13 +1,22 @@
 import { useState, useEffect, useCallback } from "react";
-import { Typography, Table, Input, Select, Button, Space, Tag, Modal, Descriptions } from "antd";
+import { Typography, Table, Input, Select, Button, Space, Drawer, Descriptions } from "antd";
 import { SearchOutlined, ReloadOutlined } from "@ant-design/icons";
+import StatusChip from "../components/StatusChip";
+import EmptyState from "../components/EmptyState";
+import type { StatusLabel } from "../components/StatusChip";
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 interface Log {
   id: number; request_id: string; public_model_name: string; provider_name: string;
   status_code: number; latency_ms: number; stream: boolean; total_tokens: number | null;
   error_code: string; error_message: string; upstream_model_name: string; client_ip: string; created_at: string;
+}
+
+function statusLabel(code: number, hasError: boolean): StatusLabel {
+  if (code >= 500 || hasError) return "Unhealthy";
+  if (code >= 400) return "Degraded";
+  return "Healthy";
 }
 
 function RequestLogsPage() {
@@ -25,7 +34,7 @@ function RequestLogsPage() {
       const params = new URLSearchParams();
       if (model) params.set("model", model);
       if (provider) params.set("provider", provider);
-      if (statusFilter) params.set("status", statusFilter);
+      if (statusFilter) params.set("status_code", statusFilter);
       if (errorOnly) params.set("error_only", "true");
       const res = await fetch(`/api/request-logs?${params}`, { credentials: "include" });
       if (res.ok) setLogs(await res.json());
@@ -36,20 +45,27 @@ function RequestLogsPage() {
 
   const columns = [
     { title: "Time", dataIndex: "created_at", key: "time", render: (t: string) => new Date(t).toLocaleString(), width: 160 },
-    { title: "Request ID", dataIndex: "request_id", key: "rid", render: (v: string) => <code style={{ fontSize: 11 }}>{v?.slice(0, 16)}...</code> },
-    { title: "Model", dataIndex: "public_model_name", key: "model" },
-    { title: "Status", dataIndex: "status_code", key: "status",
-      render: (v: number) => <Tag color={v >= 500 ? "red" : v >= 400 ? "orange" : "green"}>{v}</Tag> },
-    { title: "Latency", dataIndex: "latency_ms", key: "lat", render: (v: number) => `${v}ms` },
-    { title: "Stream", dataIndex: "stream", key: "stream", render: (v: boolean) => v ? <Tag>stream</Tag> : null },
-    { title: "Tokens", dataIndex: "total_tokens", key: "tokens", render: (v: number | null) => v ?? "-" },
-    { title: "Error", dataIndex: "error_code", key: "err", render: (v: string) => v ? <Tag color="red">{v}</Tag> : null },
+    { title: "Request ID", dataIndex: "request_id", key: "rid", width: 140, render: (v: string) => <span className="mono">{v?.slice(0, 16)}&hellip;</span> },
+    { title: "Model", dataIndex: "public_model_name", key: "model", render: (v: string) => <span className="mono">{v}</span> },
+    { title: "Status", dataIndex: "status_code", key: "status", width: 80,
+      render: (v: number, r: Log) => <StatusChip label={statusLabel(v, !!r.error_code)} /> },
+    { title: "Latency", dataIndex: "latency_ms", key: "lat", width: 80, render: (v: number) => `${v}ms` },
+    { title: "Stream", dataIndex: "stream", key: "stream", width: 70, render: (v: boolean) => v ? "Yes" : "No" },
+    { title: "Tokens", dataIndex: "total_tokens", key: "tokens", width: 70, render: (v: number | null) => v ?? "-" },
+    { title: "Error", dataIndex: "error_code", key: "err", width: 80, render: (v: string) => v ? <StatusChip label="Unhealthy" /> : null },
   ];
 
   return (
     <div style={{ padding: 24 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+        <div>
+          <Title level={3} style={{ margin: 0 }}>Request Logs</Title>
+          <Text type="secondary">Inspect request evidence and trace errors.</Text>
+        </div>
+        <Button icon={<ReloadOutlined />} onClick={fetchLogs}>Refresh</Button>
+      </div>
+
       <Space style={{ marginBottom: 16, flexWrap: "wrap" }}>
-        <Title level={3} style={{ margin: 0 }}>Request Logs</Title>
         <Input placeholder="Model" value={model} onChange={e => setModel(e.target.value)} style={{ width: 160 }} prefix={<SearchOutlined />} allowClear />
         <Input placeholder="Provider" value={provider} onChange={e => setProvider(e.target.value)} style={{ width: 160 }} allowClear />
         <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 120 }} allowClear placeholder="Status">
@@ -58,26 +74,37 @@ function RequestLogsPage() {
           <Select.Option value="500">5xx</Select.Option>
         </Select>
         <Button type={errorOnly ? "primary" : "default"} onClick={() => setErrorOnly(!errorOnly)}>Errors Only</Button>
-        <Button icon={<ReloadOutlined />} onClick={fetchLogs}>Refresh</Button>
       </Space>
-      <Table columns={columns} dataSource={logs} rowKey="id" loading={loading} size="small"
-        onRow={record => ({ onClick: () => setDetailLog(record), style: { cursor: "pointer" } })} />
 
-      <Modal title="Request Detail" open={!!detailLog} onCancel={() => setDetailLog(null)} footer={null} width={600}>
-        {detailLog && <Descriptions column={1} size="small" bordered>
-          <Descriptions.Item label="Request ID"><code>{detailLog.request_id}</code></Descriptions.Item>
-          <Descriptions.Item label="Model">{detailLog.public_model_name}</Descriptions.Item>
-          <Descriptions.Item label="Upstream">{detailLog.upstream_model_name}</Descriptions.Item>
-          <Descriptions.Item label="Provider">{detailLog.provider_name}</Descriptions.Item>
-          <Descriptions.Item label="Status">{detailLog.status_code}</Descriptions.Item>
-          <Descriptions.Item label="Latency">{detailLog.latency_ms}ms</Descriptions.Item>
-          <Descriptions.Item label="Stream">{detailLog.stream ? "Yes" : "No"}</Descriptions.Item>
-          <Descriptions.Item label="Tokens">{detailLog.total_tokens ?? "-"}</Descriptions.Item>
-          <Descriptions.Item label="Client IP">{detailLog.client_ip}</Descriptions.Item>
-          {detailLog.error_code && <Descriptions.Item label="Error">{detailLog.error_code}: {detailLog.error_message}</Descriptions.Item>}
-          <Descriptions.Item label="Time">{new Date(detailLog.created_at).toLocaleString()}</Descriptions.Item>
-        </Descriptions>}
-      </Modal>
+      <div className="table-wrapper">
+        <Table
+          columns={columns}
+          dataSource={logs}
+          rowKey="id"
+          loading={loading}
+          size="small"
+          onRow={r => ({ onClick: () => setDetailLog(r), style: { cursor: "pointer" } })}
+          locale={{ emptyText: <EmptyState reason="No logs in this window." /> }}
+        />
+      </div>
+
+      <Drawer title="Request Detail" open={!!detailLog} onClose={() => setDetailLog(null)} width={600}>
+        {detailLog && (
+          <Descriptions column={1} size="small" bordered>
+            <Descriptions.Item label="Request ID"><span className="mono">{detailLog.request_id}</span></Descriptions.Item>
+            <Descriptions.Item label="Model"><span className="mono">{detailLog.public_model_name}</span></Descriptions.Item>
+            <Descriptions.Item label="Upstream"><span className="mono">{detailLog.upstream_model_name}</span></Descriptions.Item>
+            <Descriptions.Item label="Provider">{detailLog.provider_name}</Descriptions.Item>
+            <Descriptions.Item label="Status">{detailLog.status_code}</Descriptions.Item>
+            <Descriptions.Item label="Latency">{detailLog.latency_ms}ms</Descriptions.Item>
+            <Descriptions.Item label="Stream">{detailLog.stream ? "Yes" : "No"}</Descriptions.Item>
+            <Descriptions.Item label="Tokens">{detailLog.total_tokens ?? "-"}</Descriptions.Item>
+            <Descriptions.Item label="Client IP">{detailLog.client_ip}</Descriptions.Item>
+            {detailLog.error_code && <Descriptions.Item label="Error">{detailLog.error_code}: {detailLog.error_message}</Descriptions.Item>}
+            <Descriptions.Item label="Time">{new Date(detailLog.created_at).toLocaleString()}</Descriptions.Item>
+          </Descriptions>
+        )}
+      </Drawer>
     </div>
   );
 }

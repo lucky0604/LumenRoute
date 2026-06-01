@@ -24,12 +24,12 @@ function LoginPage() {
         credentials: "include",
       });
       if (!res.ok) {
-        setError("Invalid credentials. Please check your username and password.");
+        setError("Invalid credentials. Check your username and password.");
         return;
       }
-      navigate("/providers", { replace: true });
+      navigate("/control-center", { replace: true });
     } catch {
-      setError("Unable to connect to server. Please try again.");
+      setError("Unable to connect to server. Try again.");
     } finally {
       setLoading(false);
     }
@@ -42,7 +42,6 @@ function LoginPage() {
         justifyContent: "center",
         alignItems: "center",
         minHeight: "100vh",
-        background: "#F8FAFC",
       }}
     >
       <Card style={{ width: 400 }} styles={{ body: { padding: 32 } }}>
@@ -51,7 +50,9 @@ function LoginPage() {
             <Title level={3} style={{ marginBottom: 4 }}>LumenRoute</Title>
             <Text type="secondary">Internal model routing control plane</Text>
           </div>
-          {error && <Alert type="error" title={error} showIcon />}
+          {error && (
+            <Alert type="error" title={error} showIcon role="alert" />
+          )}
           <Form name="login" onFinish={onFinish} layout="vertical" size="large">
             <Form.Item name="username" rules={[{ required: true, message: "Username is required" }]}>
               <Input prefix={<UserOutlined />} placeholder="Username" autoComplete="username" />

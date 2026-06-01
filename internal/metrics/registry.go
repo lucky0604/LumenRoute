@@ -3,6 +3,8 @@ package metrics
 import (
 	"net/http"
 	"sync/atomic"
+
+	"lumenroute/internal/capture"
 )
 
 type Registry struct {
@@ -25,6 +27,24 @@ func (m *Registry) IncStreams()    { m.activeStreams.Add(1) }
 func (m *Registry) DecStreams()    { m.activeStreams.Add(-1) }
 func (m *Registry) SetHealthy(n int64)     { m.providerHealthy.Store(n) }
 func (m *Registry) SetUnhealthy(n int64)   { m.providerUnhealthy.Store(n) }
+
+func (m *Registry) RecordProxyRequest(r ProxyRequest) {
+	m.requestsTotal.Add(1)
+	if r.IsError {
+		m.requestErrors.Add(1)
+	}
+	if r.Tokens > 0 {
+		m.requestTokens.Add(int64(r.Tokens))
+	}
+}
+
+func (m *Registry) SetProviderHealthCounts(healthy, unhealthy int64) {
+	m.providerHealthy.Store(healthy)
+	m.providerUnhealthy.Store(unhealthy)
+}
+
+func (m *Registry) IncActiveStream() { m.activeStreams.Add(1) }
+func (m *Registry) DecActiveStream() { m.activeStreams.Add(-1) }
 
 func (m *Registry) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -52,6 +72,23 @@ func (m *Registry) Handler() http.Handler {
 		w.Write([]byte("# HELP lumenroute_provider_unhealthy Number of unhealthy providers.\n"))
 		w.Write([]byte("# TYPE lumenroute_provider_unhealthy gauge\n"))
 		w.Write([]byte("lumenroute_provider_unhealthy " + itoa(m.providerUnhealthy.Load()) + "\n"))
+
+		cm := capture.Metrics()
+		w.Write([]byte("# HELP lumenroute_capture_total Total captures submitted.\n"))
+		w.Write([]byte("# TYPE lumenroute_capture_total counter\n"))
+		w.Write([]byte("lumenroute_capture_total " + itoa(cm["capture_total"]) + "\n"))
+		w.Write([]byte("# HELP lumenroute_capture_dropped_total Captures dropped due to full channel.\n"))
+		w.Write([]byte("# TYPE lumenroute_capture_dropped_total counter\n"))
+		w.Write([]byte("lumenroute_capture_dropped_total " + itoa(cm["capture_dropped_total"]) + "\n"))
+		w.Write([]byte("# HELP lumenroute_capture_write_errors_total Capture file write errors.\n"))
+		w.Write([]byte("# TYPE lumenroute_capture_write_errors_total counter\n"))
+		w.Write([]byte("lumenroute_capture_write_errors_total " + itoa(cm["capture_write_errors_total"]) + "\n"))
+		w.Write([]byte("# HELP lumenroute_capture_store_errors_total Capture DB store errors.\n"))
+		w.Write([]byte("# TYPE lumenroute_capture_store_errors_total counter\n"))
+		w.Write([]byte("lumenroute_capture_store_errors_total " + itoa(cm["capture_store_errors_total"]) + "\n"))
+		w.Write([]byte("# HELP lumenroute_capture_export_skipped Captures skipped during export.\n"))
+		w.Write([]byte("# TYPE lumenroute_capture_export_skipped counter\n"))
+		w.Write([]byte("lumenroute_capture_export_skipped " + itoa(cm["capture_export_skipped"]) + "\n"))
 	})
 }
 

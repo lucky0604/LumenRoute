@@ -206,6 +206,7 @@ func (h *AdminHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		Description     string `json:"description"`
 		Enabled         bool   `json:"enabled"`
 		RequireAuth     *bool  `json:"require_auth"`
+		ProjectID       *int64 `json:"project_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
@@ -221,6 +222,7 @@ func (h *AdminHandlers) CreateRoute(w http.ResponseWriter, r *http.Request) {
 		Description:     req.Description,
 		Enabled:         req.Enabled,
 		RequireAuth:     requireAuth,
+		ProjectID:       req.ProjectID,
 	}
 	id, err := h.Routes.CreateRoute(rt)
 	if err != nil {
@@ -257,6 +259,7 @@ func (h *AdminHandlers) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		Description string `json:"description"`
 		Enabled     bool   `json:"enabled"`
 		RequireAuth *bool  `json:"require_auth"`
+		ProjectID   *int64 `json:"project_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
@@ -271,6 +274,7 @@ func (h *AdminHandlers) UpdateRoute(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 		Enabled:     req.Enabled,
 		RequireAuth: requireAuth,
+		ProjectID:   req.ProjectID,
 	}
 	if err := h.Routes.UpdateRoute(id, rt); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())

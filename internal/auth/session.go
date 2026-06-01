@@ -121,6 +121,20 @@ func hashToken(token string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// HasValidSession returns true if the request carries a valid, non-expired session cookie.
+func (sm *SessionManager) HasValidSession(r *http.Request) bool {
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	tokenHash := hashToken(cookie.Value)
+	var expiresAt time.Time
+	if err := sm.db.QueryRow("SELECT expires_at FROM sessions WHERE token_hash = ?", tokenHash).Scan(&expiresAt); err != nil {
+		return false
+	}
+	return !time.Now().After(expiresAt)
+}
+
 func writeJ(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

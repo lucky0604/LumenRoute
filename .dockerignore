@@ -1,0 +1,33 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# IDE / Editor
+.vscode
+.idea
+.cursor
+*.swp
+*.swo
+
+# Documentation
+*.md
+!README.md
+docs/
+ideas/
+
+# Local data & secrets
+data/
+.env
+.env.local
+docker/data/
+*.db
+
+# Build artifacts
+lumenroute
+web/dist
+web/node_modules
+
+# OS files
+.DS_Store
+Thumbs.db
