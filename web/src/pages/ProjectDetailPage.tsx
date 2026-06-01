@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Typography, Descriptions, Statistic, Table, Button, Space, Tag, Card, Row, Col, Tabs, Input, message, Spin, Alert, Empty, Result } from "antd";
+import { Typography, Descriptions, Statistic, Table, Button, Space, Tag, Card, Row, Col, Tabs, Input, message, Spin, Empty, Result } from "antd";
 import { ArrowLeftOutlined, CopyOutlined, ReloadOutlined, DownloadOutlined } from "@ant-design/icons";
 
 const { Title, Text } = Typography;

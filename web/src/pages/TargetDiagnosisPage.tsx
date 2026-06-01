@@ -88,7 +88,7 @@ function TargetDiagnosisPage() {
   if (error && !data) {
     return (
       <div style={{ padding: 24 }}>
-        <Alert type="error" message="Failed to load target diagnosis" description={error} showIcon
+        <Alert type="error" title="Failed to load target diagnosis" description={error} showIcon
           action={<Button size="small" onClick={fetchData}>Retry</Button>}
           role="alert" />
       </div>
@@ -135,7 +135,7 @@ function TargetDiagnosisPage() {
       </div>
 
       {error && data && (
-        <Alert type="error" message="Partial load failure" description={error}
+        <Alert type="error" title="Partial load failure" description={error}
           showIcon closable style={{ marginBottom: 16 }} role="alert"
           action={<Button size="small" onClick={fetchData}>Retry</Button>} />
       )}

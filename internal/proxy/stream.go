@@ -111,19 +111,20 @@ func (s *SSEScanner) Scan() bool {
 	}
 }
 
-func (s *SSEScanner) RawLine() []byte              { return s.rawLine }
-func (s *SSEScanner) LastDelta() string             { return s.lastDelta }
-func (s *SSEScanner) Completed() bool               { return s.completed }
-func (s *SSEScanner) TimeToFirstChunkMs() int64     { return s.timeToFirstChunkMs }
-func (s *SSEScanner) FirstChunkID() string          { return s.firstChunkID }
-func (s *SSEScanner) FirstChunkModel() string       { return s.firstChunkModel }
-func (s *SSEScanner) LastFinishReason() string      { return s.lastFinishReason }
+func (s *SSEScanner) RawLine() []byte          { return s.rawLine }
+func (s *SSEScanner) LastDelta() string         { return s.lastDelta }
+func (s *SSEScanner) Completed() bool           { return s.completed }
+func (s *SSEScanner) TimeToFirstChunkMs() int64 { return s.timeToFirstChunkMs }
+func (s *SSEScanner) FirstChunkID() string      { return s.firstChunkID }
+func (s *SSEScanner) FirstChunkModel() string   { return s.firstChunkModel }
+func (s *SSEScanner) LastFinishReason() string  { return s.lastFinishReason }
 
 func parseDelta(payload []byte) string {
 	var chunk struct {
 		Choices []struct {
 			Delta struct {
-				Content string `json:"content"`
+				Content          string `json:"content"`
+				ReasoningContent string `json:"reasoning_content"`
 			} `json:"delta"`
 		} `json:"choices"`
 	}
@@ -131,7 +132,11 @@ func parseDelta(payload []byte) string {
 		return ""
 	}
 	if len(chunk.Choices) > 0 {
-		return chunk.Choices[0].Delta.Content
+		d := chunk.Choices[0].Delta
+		if d.Content != "" {
+			return d.Content
+		}
+		return d.ReasoningContent
 	}
 	return ""
 }

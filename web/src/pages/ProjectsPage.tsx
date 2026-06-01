@@ -123,7 +123,7 @@ function ProjectsPage() {
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>New Project</Button>
       </div>
-      {error && <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />}
+      {error && <Alert title={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />}
       <Table columns={columns} dataSource={projects} rowKey="id" loading={loading} pagination={{ pageSize: 20 }}
         locale={{ emptyText: <Empty description="No projects yet. Create one to start capturing request data." /> }} />
       <Modal
@@ -131,7 +131,6 @@ function ProjectsPage() {
         open={modalOpen}
         onOk={handleSave}
         onCancel={() => { setModalOpen(false); setEditingProject(null); }}
-        destroyOnClose
       >
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="Name" rules={[{ required: true, message: "Name is required" }]}>

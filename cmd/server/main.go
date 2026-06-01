@@ -137,6 +137,10 @@ func main() {
 
 	// Export endpoint uses dual auth (session OR export token), so it is
 	// mounted on the outer mux and bypasses session middleware.
+	// Explicit /api/projects handler prevents Go 1.22+ redirect to /api/projects/.
+	mux.HandleFunc("/api/projects", func(w http.ResponseWriter, r *http.Request) {
+		adminHandler.ServeHTTP(w, r)
+	})
 	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/captures/export") && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
 			captureHandlers.ExportCaptures(w, r)

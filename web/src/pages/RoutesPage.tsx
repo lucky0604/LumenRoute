@@ -121,7 +121,7 @@ function RoutesPage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setRouteOpen(true)}>Add Route</Button>
       </div>
 
-      {error && <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />}
+      {error && <Alert title={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />}
       <div className="table-wrapper">
         <Table columns={columns} dataSource={routes} rowKey="id" loading={loading}
           locale={{ emptyText: <Empty description="No routes configured. Add a route to expose a public model name." /> }} />

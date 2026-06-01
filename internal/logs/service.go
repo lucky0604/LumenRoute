@@ -32,6 +32,8 @@ type RequestLog struct {
 	TotalTokens        *int      `json:"total_tokens"`
 	ErrorCode          string    `json:"error_code"`
 	ErrorMessage       string    `json:"error_message"`
+	RequestBody        string    `json:"request_body"`
+	ResponseBody       string    `json:"response_body"`
 	CreatedAt          time.Time `json:"created_at"`
 }
 
@@ -48,12 +50,13 @@ func (s *Service) Write(log RequestLog) error {
 		INSERT INTO request_logs (request_id, api_key_id, route_id, route_name, provider_id, provider_name,
 		target_id, public_model_name, upstream_model_name, client_ip, method, path, stream,
 		status_code, upstream_status_code, latency_ms, time_to_first_chunk_ms, stream_completed,
-		prompt_tokens, completion_tokens, total_tokens, error_code, error_message, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+		prompt_tokens, completion_tokens, total_tokens, error_code, error_message, request_body, response_body, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
 	`, log.RequestID, log.APIKeyID, log.RouteID, log.RouteName, log.ProviderID, log.ProviderName,
 		log.TargetID, log.PublicModelName, log.UpstreamModelName, log.ClientIP, log.Method, log.Path, log.Stream,
 		log.StatusCode, log.UpstreamStatusCode, log.LatencyMs, log.TimeToFirstChunkMs, log.StreamCompleted,
-		log.PromptTokens, log.CompletionTokens, log.TotalTokens, log.ErrorCode, log.ErrorMessage)
+		log.PromptTokens, log.CompletionTokens, log.TotalTokens, log.ErrorCode, log.ErrorMessage,
+		log.RequestBody, log.ResponseBody)
 	return err
 }
 
@@ -61,7 +64,7 @@ func (s *Service) List(filter LogFilter) ([]RequestLog, error) {
 	query := `SELECT id, request_id, api_key_id, route_id, route_name, provider_id, provider_name,
 		target_id, public_model_name, upstream_model_name, client_ip, method, path, stream,
 		status_code, upstream_status_code, latency_ms, time_to_first_chunk_ms, stream_completed,
-		prompt_tokens, completion_tokens, total_tokens, error_code, error_message, created_at
+		prompt_tokens, completion_tokens, total_tokens, error_code, error_message, request_body, response_body, created_at
 		FROM request_logs WHERE 1=1`
 	var args []interface{}
 
@@ -126,7 +129,7 @@ func (s *Service) Get(id int64) (*RequestLog, error) {
 	row := s.db.QueryRow(`SELECT id, request_id, api_key_id, route_id, route_name, provider_id, provider_name,
 		target_id, public_model_name, upstream_model_name, client_ip, method, path, stream,
 		status_code, upstream_status_code, latency_ms, time_to_first_chunk_ms, stream_completed,
-		prompt_tokens, completion_tokens, total_tokens, error_code, error_message, created_at
+		prompt_tokens, completion_tokens, total_tokens, error_code, error_message, request_body, response_body, created_at
 		FROM request_logs WHERE id = ?`, id)
 	var log RequestLog
 	if err := scanLogRow(row, &log); err != nil {
@@ -163,12 +166,12 @@ func scanLogRow(row *sql.Row, log *RequestLog) error {
 	var ttfc sql.NullInt64
 	var streamComp sql.NullBool
 	var promptT, compT, totalT sql.NullInt64
-	var errorCode, errorMsg sql.NullString
+	var errorCode, errorMsg, reqBody, respBody sql.NullString
 
 	if err := row.Scan(&log.ID, &log.RequestID, &apiKeyID, &routeID, &routeName, &providerID, &providerName,
 		&targetID, &publicModel, &upstreamModel, &clientIP, &method, &path, &log.Stream,
 		&log.StatusCode, &upstreamSC, &log.LatencyMs, &ttfc, &streamComp,
-		&promptT, &compT, &totalT, &errorCode, &errorMsg, &log.CreatedAt); err != nil {
+		&promptT, &compT, &totalT, &errorCode, &errorMsg, &reqBody, &respBody, &log.CreatedAt); err != nil {
 		return err
 	}
 	if apiKeyID.Valid { v := apiKeyID.Int64; log.APIKeyID = &v }
@@ -190,6 +193,8 @@ func scanLogRow(row *sql.Row, log *RequestLog) error {
 	if totalT.Valid { v := int(totalT.Int64); log.TotalTokens = &v }
 	if errorCode.Valid { log.ErrorCode = errorCode.String }
 	if errorMsg.Valid { log.ErrorMessage = errorMsg.String }
+	if reqBody.Valid { log.RequestBody = reqBody.String }
+	if respBody.Valid { log.ResponseBody = respBody.String }
 	return nil
 }
 
@@ -203,12 +208,12 @@ func scanLogs(rows *sql.Rows) ([]RequestLog, error) {
 		var ttfc sql.NullInt64
 		var streamComp sql.NullBool
 		var promptT, compT, totalT sql.NullInt64
-		var errorCode, errorMsg sql.NullString
+		var errorCode, errorMsg, reqBody, respBody sql.NullString
 
 		if err := rows.Scan(&log.ID, &log.RequestID, &apiKeyID, &routeID, &routeName, &providerID, &providerName,
 			&targetID, &publicModel, &upstreamModel, &clientIP, &method, &path, &log.Stream,
 			&log.StatusCode, &upstreamSC, &log.LatencyMs, &ttfc, &streamComp,
-			&promptT, &compT, &totalT, &errorCode, &errorMsg, &log.CreatedAt); err != nil {
+			&promptT, &compT, &totalT, &errorCode, &errorMsg, &reqBody, &respBody, &log.CreatedAt); err != nil {
 			return nil, err
 		}
 		if apiKeyID.Valid { v := apiKeyID.Int64; log.APIKeyID = &v }
@@ -230,6 +235,8 @@ func scanLogs(rows *sql.Rows) ([]RequestLog, error) {
 		if totalT.Valid { v := int(totalT.Int64); log.TotalTokens = &v }
 		if errorCode.Valid { log.ErrorCode = errorCode.String }
 		if errorMsg.Valid { log.ErrorMessage = errorMsg.String }
+		if reqBody.Valid { log.RequestBody = reqBody.String }
+		if respBody.Valid { log.ResponseBody = respBody.String }
 		logs = append(logs, log)
 	}
 	return logs, rows.Err()

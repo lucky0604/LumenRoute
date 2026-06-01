@@ -177,6 +177,7 @@ func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target 
 			Request: r, Route: rt, Target: target,
 			UpstreamStatusCode: 502,
 			LatencyMs:          time.Since(start).Milliseconds(),
+				RequestBody:        clientBody,
 			ErrorCode:          "upstream_connection_failed",
 			ErrorMessage:       err.Error(),
 		})
@@ -193,7 +194,8 @@ func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target 
 		Request: r, Route: rt, Target: target,
 		UpstreamStatusCode: resp.StatusCode,
 		LatencyMs:          latency,
-		ResponseBody:       respBody,
+		RequestBody:        clientBody,
+			ResponseBody:       respBody,
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -247,6 +249,7 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 			Request: r, Route: rt, Target: target,
 			UpstreamStatusCode: 502,
 			LatencyMs:          time.Since(start).Milliseconds(),
+				RequestBody:        clientBody,
 			Stream:             true,
 			ErrorCode:          "upstream_connection_failed",
 			ErrorMessage:       err.Error(),
@@ -265,6 +268,7 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 			UpstreamStatusCode: resp.StatusCode,
 			LatencyMs:          latency,
 			Stream:             true,
+			RequestBody:        clientBody,
 			ResponseBody:       respBody,
 		})
 		w.Header().Set("Content-Type", "application/json")
@@ -306,6 +310,7 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 			Request: r, Route: rt, Target: target,
 			UpstreamStatusCode: resp.StatusCode,
 			LatencyMs:          time.Since(start).Milliseconds(),
+				RequestBody:        clientBody,
 			Stream:             true,
 			ErrorCode:          "no_flusher",
 			ErrorMessage:       "ResponseWriter does not support flushing",
@@ -352,17 +357,19 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 		}
 	}
 
+	reconstructed := reconstructStreamResponse(accumulated.String(), sr, scanner, clientBody)
 	s.writeLog(logParams{
 		RequestID: requestID,
 		Request: r, Route: rt, Target: target,
 		UpstreamStatusCode: resp.StatusCode,
 		LatencyMs:          sr.LatencyMs,
+		RequestBody:        clientBody,
+		ResponseBody:       reconstructed,
 		Stream:             true,
 		StreamResult:       sr,
 	})
 
 	if projectID > 0 {
-		reconstructed := reconstructStreamResponse(accumulated.String(), sr, scanner, clientBody)
 		ttfc := int(sr.TimeToFirstChunkMs)
 		entry := capture.CaptureEntry{
 			RequestID:         requestID,

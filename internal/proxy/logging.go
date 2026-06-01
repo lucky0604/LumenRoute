@@ -17,6 +17,7 @@ type logParams struct {
 	LatencyMs          int64
 	Stream             bool
 	StreamResult       *StreamResult
+	RequestBody        []byte
 	ResponseBody       []byte
 	ErrorCode          string
 	ErrorMessage       string
@@ -70,6 +71,22 @@ func buildRequestLog(p logParams) logs.RequestLog {
 			entry.PromptTokens = ti.PromptTokens
 			entry.CompletionTokens = ti.CompletionTokens
 			entry.TotalTokens = ti.TotalTokens
+		}
+	}
+
+	const maxBodyLen = 65536
+	if len(p.RequestBody) > 0 {
+		if len(p.RequestBody) > maxBodyLen {
+			entry.RequestBody = string(p.RequestBody[:maxBodyLen]) + "\n... [truncated]"
+		} else {
+			entry.RequestBody = string(p.RequestBody)
+		}
+	}
+	if len(p.ResponseBody) > 0 {
+		if len(p.ResponseBody) > maxBodyLen {
+			entry.ResponseBody = string(p.ResponseBody[:maxBodyLen]) + "\n... [truncated]"
+		} else {
+			entry.ResponseBody = string(p.ResponseBody)
 		}
 	}
 

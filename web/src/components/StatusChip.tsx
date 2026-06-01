@@ -13,7 +13,8 @@ export type StatusLabel =
   | "Auth required"
   | "Auth failed"
   | "No traffic"
-  | "Unknown";
+  | "Unknown"
+  | "Configured";
 
 const statusColorMap: Record<StatusLabel, TagProps["color"]> = {
   Healthy: "success",
@@ -28,6 +29,7 @@ const statusColorMap: Record<StatusLabel, TagProps["color"]> = {
   "Auth failed": "error",
   "No traffic": "default",
   Unknown: "default",
+  Configured: "success",
 };
 
 interface StatusChipProps {

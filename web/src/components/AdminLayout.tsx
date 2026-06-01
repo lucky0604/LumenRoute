@@ -12,7 +12,6 @@ import {
   SunOutlined,
   MoonOutlined,
   DashboardOutlined,
-  BugOutlined,
   MenuOutlined,
   ExperimentOutlined,
 } from "@ant-design/icons";
@@ -49,14 +48,6 @@ const menuItems = [
       { key: "/request-logs", icon: <FileSearchOutlined />, label: "Request Logs" },
       { key: "/health", icon: <HeartOutlined />, label: "Health" },
       { key: "/model-performance", icon: <BarChartOutlined />, label: "Model Performance" },
-    ],
-  },
-  {
-    key: "diagnose",
-    label: "Diagnose",
-    type: "group" as const,
-    children: [
-      { key: "/model-performance", icon: <BugOutlined />, label: "Target Diagnosis" },
     ],
   },
 ];

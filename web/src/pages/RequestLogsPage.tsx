@@ -11,6 +11,7 @@ interface Log {
   id: number; request_id: string; public_model_name: string; provider_name: string;
   status_code: number; latency_ms: number; stream: boolean; total_tokens: number | null;
   error_code: string; error_message: string; upstream_model_name: string; client_ip: string; created_at: string;
+  request_body: string; response_body: string;
 }
 
 function statusLabel(code: number, hasError: boolean): StatusLabel {
@@ -102,6 +103,20 @@ function RequestLogsPage() {
             <Descriptions.Item label="Client IP">{detailLog.client_ip}</Descriptions.Item>
             {detailLog.error_code && <Descriptions.Item label="Error">{detailLog.error_code}: {detailLog.error_message}</Descriptions.Item>}
             <Descriptions.Item label="Time">{new Date(detailLog.created_at).toLocaleString()}</Descriptions.Item>
+            {detailLog.request_body && (
+              <Descriptions.Item label="Request Body">
+                <pre style={{ maxHeight: 200, overflow: "auto", fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {detailLog.request_body}
+                </pre>
+              </Descriptions.Item>
+            )}
+            {detailLog.response_body && (
+              <Descriptions.Item label="Response Body">
+                <pre style={{ maxHeight: 200, overflow: "auto", fontSize: 12, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {detailLog.response_body}
+                </pre>
+              </Descriptions.Item>
+            )}
           </Descriptions>
         )}
       </Drawer>
