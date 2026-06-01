@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-func computeP95(db *sql.DB, targetID int64, publicModel string, since time.Time) float64 {
+func computePercentile(db *sql.DB, targetID int64, publicModel string, since time.Time, pct int) float64 {
 	var rows *sql.Rows
 	var err error
 	sinceStr := since.Format("2006-01-02 15:04:05")
@@ -43,8 +43,19 @@ func computeP95(db *sql.DB, targetID int64, publicModel string, since time.Time)
 		return 0
 	}
 	sort.Ints(values)
-	idx := len(values) * 95 / 100
+	idx := len(values) * pct / 100
+	if idx >= len(values) {
+		idx = len(values) - 1
+	}
 	return float64(values[idx])
+}
+
+func computeP95(db *sql.DB, targetID int64, publicModel string, since time.Time) float64 {
+	return computePercentile(db, targetID, publicModel, since, 95)
+}
+
+func computeP99(db *sql.DB, targetID int64, publicModel string, since time.Time) float64 {
+	return computePercentile(db, targetID, publicModel, since, 99)
 }
 
 func parseWindow(window string) (time.Time, error) {

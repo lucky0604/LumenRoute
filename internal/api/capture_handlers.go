@@ -57,6 +57,7 @@ func (h *CaptureHandlers) ListCaptures(w http.ResponseWriter, r *http.Request) {
 
 // ExportCaptures handles GET /api/projects/{id}/captures/export (dual auth)
 // Supports both session cookie and Bearer export token authentication.
+// Pass count_only=true to get a size estimate without streaming data.
 func (h *CaptureHandlers) ExportCaptures(w http.ResponseWriter, r *http.Request) {
 	projectID, err := parseID(r.URL.Path, "/api/projects/")
 	if err != nil {
@@ -65,6 +66,16 @@ func (h *CaptureHandlers) ExportCaptures(w http.ResponseWriter, r *http.Request)
 	}
 
 	if !h.checkExportAuth(w, r, projectID) {
+		return
+	}
+
+	if r.URL.Query().Get("count_only") == "true" {
+		filter := h.parseCaptureFilter(r)
+		total, _ := h.CaptureStore.CountByProjectFiltered(projectID, filter)
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"total":      total,
+			"project_id": projectID,
+		})
 		return
 	}
 

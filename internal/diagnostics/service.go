@@ -78,6 +78,7 @@ func (s *Service) GetModelOverview(window string) ([]ModelSummary, error) {
 			ms.StreamCompletedRate = float64(streamCompleted) / float64(streamCount)
 		}
 		ms.P95LatencyMs = computeP95(s.db, ms.TargetID, ms.PublicModelName, since)
+		ms.P99LatencyMs = computeP99(s.db, ms.TargetID, ms.PublicModelName, since)
 		ms.LastErrorCode = queryLastErrorCode(s.db, ms.TargetID, ms.PublicModelName, since)
 		summaries = append(summaries, ms)
 	}
@@ -189,6 +190,7 @@ func (s *Service) queryTargetSummary(targetID int64, since time.Time) ModelSumma
 		ms.StreamCompletedRate = float64(streamCompleted) / float64(streamCount)
 	}
 	ms.P95LatencyMs = computeP95(s.db, targetID, "", since)
+	ms.P99LatencyMs = computeP99(s.db, targetID, "", since)
 	ms.LastErrorCode = queryLastErrorCode(s.db, targetID, "", since)
 	return ms
 }

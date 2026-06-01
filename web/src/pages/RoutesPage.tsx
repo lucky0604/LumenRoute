@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Typography, Table, Button, Modal, Form, Input, InputNumber, Space, Popconfirm, Drawer, Select, Switch } from "antd";
+import { Typography, Table, Button, Modal, Form, Input, InputNumber, Space, Popconfirm, Drawer, Select, Switch, Tag, Empty, Alert } from "antd";
 import { PlusOutlined, SettingOutlined, SearchOutlined } from "@ant-design/icons";
 import StatusChip from "../components/StatusChip";
 
@@ -9,9 +9,12 @@ const { Title, Text } = Typography;
 interface Provider {
   id: number; name: string; base_url: string; enabled: boolean; health_status: string;
 }
+interface SimpleProject {
+  id: number; name: string;
+}
 interface Route {
   id: number; name: string; public_model_name: string; description: string;
-  enabled: boolean; require_auth: boolean; created_at: string;
+  enabled: boolean; require_auth: boolean; project_id: number | null; project_name: string; created_at: string;
 }
 interface Target {
   id: number; route_id: number; provider_id: number; provider_name: string;
@@ -22,7 +25,9 @@ interface Target {
 function RoutesPage() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [projects, setProjects] = useState<SimpleProject[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [routeOpen, setRouteOpen] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [selectedRoute, setSelectedRoute] = useState<Route | null>(null);
@@ -33,11 +38,24 @@ function RoutesPage() {
 
   const fetchRoutes = useCallback(async () => {
     setLoading(true);
-    try { const res = await fetch("/api/routes", { credentials: "include" }); if (res.ok) setRoutes(await res.json()); }
+    setError(null);
+    try {
+      const res = await fetch("/api/routes", { credentials: "include" });
+      if (res.ok) setRoutes(await res.json());
+      else setError(`Failed to load routes (HTTP ${res.status})`);
+    } catch { setError("Network error loading routes"); }
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { fetchRoutes(); }, [fetchRoutes]);
+  const fetchProjects = useCallback(async () => {
+    const res = await fetch("/api/projects", { credentials: "include" });
+    if (res.ok) {
+      const data = await res.json();
+      setProjects(data.map((p: SimpleProject) => ({ id: p.id, name: p.name })));
+    }
+  }, []);
+
+  useEffect(() => { fetchRoutes(); fetchProjects(); }, [fetchRoutes, fetchProjects]);
 
   const fetchTargets = async (routeId: number) => {
     const res = await fetch(`/api/routes/${routeId}/targets`, { credentials: "include" });
@@ -57,6 +75,7 @@ function RoutesPage() {
   const columns = [
     { title: "Name", dataIndex: "name", key: "name" },
     { title: "Public Model", dataIndex: "public_model_name", key: "model", render: (v: string) => <span className="mono">{v}</span> },
+    { title: "Project", dataIndex: "project_name", key: "project", render: (v: string) => v ? <Tag>{v}</Tag> : <Text type="secondary">None</Text> },
     { title: "Require Auth", dataIndex: "require_auth", key: "auth", render: (v: boolean) => v ? <StatusChip label="Auth required" /> : null },
     { title: "Status", dataIndex: "enabled", key: "enabled", render: (v: boolean) => <StatusChip label={v ? "Enabled" : "Disabled"} /> },
     { title: "Created", dataIndex: "created_at", key: "created_at", render: (t: string) => new Date(t).toLocaleString() },
@@ -102,8 +121,10 @@ function RoutesPage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setRouteOpen(true)}>Add Route</Button>
       </div>
 
+      {error && <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />}
       <div className="table-wrapper">
-        <Table columns={columns} dataSource={routes} rowKey="id" loading={loading} />
+        <Table columns={columns} dataSource={routes} rowKey="id" loading={loading}
+          locale={{ emptyText: <Empty description="No routes configured. Add a route to expose a public model name." /> }} />
       </div>
 
       <Modal title="Add Route" open={routeOpen} onCancel={() => { setRouteOpen(false); routeForm.resetFields(); }} onOk={async () => {
@@ -119,6 +140,9 @@ function RoutesPage() {
             <Input placeholder="e.g. qwen-coder-fast" />
           </Form.Item>
           <Form.Item name="description" label="Description"><Input /></Form.Item>
+          <Form.Item name="project_id" label="Project" extra="Optionally associate this route with a project for capture.">
+            <Select placeholder="None" allowClear options={projects.map(p => ({ label: p.name, value: p.id }))} />
+          </Form.Item>
           <Form.Item name="require_auth" label="Require API Key Auth" valuePropName="checked" initialValue={true} extra="When enabled, clients must provide a valid API key.">
             <Switch />
           </Form.Item>

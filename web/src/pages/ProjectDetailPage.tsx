@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Typography, Descriptions, Statistic, Table, Button, Space, Tag, Card, Row, Col, Tabs, Input, message } from "antd";
+import { Typography, Descriptions, Statistic, Table, Button, Space, Tag, Card, Row, Col, Tabs, Input, message, Spin, Alert, Empty, Result } from "antd";
 import { ArrowLeftOutlined, CopyOutlined, ReloadOutlined, DownloadOutlined } from "@ant-design/icons";
 
 const { Title, Text } = Typography;
@@ -38,10 +38,16 @@ function ProjectDetailPage() {
   const [capLoading, setCapLoading] = useState(false);
   const [exportToken, setExportToken] = useState("");
   const [cursor, setCursor] = useState<number | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchProject = useCallback(async () => {
-    const res = await fetch(`/api/projects/${id}`, { credentials: "include" });
-    if (res.ok) setProject(await res.json());
+    try {
+      const res = await fetch(`/api/projects/${id}`, { credentials: "include" });
+      if (res.ok) setProject(await res.json());
+      else setLoadError(`Failed to load project (HTTP ${res.status})`);
+    } catch { setLoadError("Network error loading project"); }
+    finally { setPageLoading(false); }
   }, [id]);
 
   const fetchStats = useCallback(async () => {
@@ -97,7 +103,9 @@ function ProjectDetailPage() {
       render: (v: string) => new Date(v).toLocaleString() },
   ];
 
-  if (!project) return <div style={{ padding: 24 }}>Loading...</div>;
+  if (pageLoading) return <div style={{ padding: 24, textAlign: "center" }}><Spin size="large" tip="Loading project..." /></div>;
+  if (loadError) return <div style={{ padding: 24 }}><Result status="error" title="Failed to Load" subTitle={loadError} extra={<Button onClick={() => navigate("/projects")}>Back to Projects</Button>} /></div>;
+  if (!project) return <div style={{ padding: 24 }}><Result status="404" title="Project Not Found" extra={<Button onClick={() => navigate("/projects")}>Back to Projects</Button>} /></div>;
 
   return (
     <div style={{ padding: 24 }}>
@@ -133,7 +141,8 @@ function ProjectDetailPage() {
               </Space>
             </div>
             <Table columns={captureColumns} dataSource={captures} rowKey="id" loading={capLoading}
-              pagination={false} size="small" />
+              pagination={false} size="small"
+              locale={{ emptyText: <Empty description={project.capture_enabled ? "No captures recorded yet. Send requests through associated routes." : "Capture is paused. Enable it in project settings."} /> }} />
             {cursor && (
               <div style={{ textAlign: "center", marginTop: 16 }}>
                 <Button onClick={() => fetchCaptures(cursor)}>Load More</Button>

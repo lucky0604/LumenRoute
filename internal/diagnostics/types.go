@@ -10,6 +10,7 @@ type ModelSummary struct {
 	ErrorRate           float64 `json:"error_rate"`
 	AvgLatencyMs        float64 `json:"avg_latency_ms"`
 	P95LatencyMs        float64 `json:"p95_latency_ms"`
+	P99LatencyMs        float64 `json:"p99_latency_ms"`
 	TotalTokens         int     `json:"total_tokens"`
 	StreamCount         int     `json:"stream_count"`
 	StreamCompletedRate float64 `json:"stream_completed_rate"`

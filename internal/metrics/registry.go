@@ -83,6 +83,12 @@ func (m *Registry) Handler() http.Handler {
 		w.Write([]byte("# HELP lumenroute_capture_write_errors_total Capture file write errors.\n"))
 		w.Write([]byte("# TYPE lumenroute_capture_write_errors_total counter\n"))
 		w.Write([]byte("lumenroute_capture_write_errors_total " + itoa(cm["capture_write_errors_total"]) + "\n"))
+		w.Write([]byte("# HELP lumenroute_capture_store_errors_total Capture DB store errors.\n"))
+		w.Write([]byte("# TYPE lumenroute_capture_store_errors_total counter\n"))
+		w.Write([]byte("lumenroute_capture_store_errors_total " + itoa(cm["capture_store_errors_total"]) + "\n"))
+		w.Write([]byte("# HELP lumenroute_capture_export_skipped Captures skipped during export.\n"))
+		w.Write([]byte("# TYPE lumenroute_capture_export_skipped counter\n"))
+		w.Write([]byte("lumenroute_capture_export_skipped " + itoa(cm["capture_export_skipped"]) + "\n"))
 	})
 }
 

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Typography, Table, Button, Modal, Form, Input, InputNumber, Select, Space, Popconfirm, Switch, Tag } from "antd";
-import { PlusOutlined, ExperimentOutlined } from "@ant-design/icons";
+import { Typography, Table, Button, Modal, Form, Input, InputNumber, Select, Space, Popconfirm, Switch, Tag, Empty, Alert } from "antd";
+import { PlusOutlined } from "@ant-design/icons";
 import StatusChip from "../components/StatusChip";
 
 const { Title, Text } = Typography;
@@ -28,6 +28,7 @@ const categoryColors: Record<string, string> = {
 function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [form] = Form.useForm();
@@ -35,12 +36,13 @@ function ProjectsPage() {
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/projects", { credentials: "include" });
-      if (res.ok) setProjects(await res.json());
-    } finally {
-      setLoading(false);
-    }
+      if (res.ok) { setProjects(await res.json()); }
+      else { setError(`Failed to load projects (HTTP ${res.status})`); }
+    } catch { setError("Network error loading projects"); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
@@ -121,7 +123,9 @@ function ProjectsPage() {
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>New Project</Button>
       </div>
-      <Table columns={columns} dataSource={projects} rowKey="id" loading={loading} pagination={{ pageSize: 20 }} />
+      {error && <Alert message={error} type="error" showIcon closable style={{ marginBottom: 16 }} onClose={() => setError(null)} />}
+      <Table columns={columns} dataSource={projects} rowKey="id" loading={loading} pagination={{ pageSize: 20 }}
+        locale={{ emptyText: <Empty description="No projects yet. Create one to start capturing request data." /> }} />
       <Modal
         title={editingProject ? "Edit Project" : "New Project"}
         open={modalOpen}
