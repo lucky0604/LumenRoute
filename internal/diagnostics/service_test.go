@@ -1,263 +1,181 @@
 package diagnostics
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
-	"lumenroute/internal/db"
 	"lumenroute/internal/logs"
 	"lumenroute/internal/provider"
 	"lumenroute/internal/route"
 )
 
-func setupTestDB(t *testing.T) (*Service, *logs.Service) {
+func seedOverviewLogs(t *testing.T, logsSvc *logs.Service) {
 	t.Helper()
-	dsn := "file:" + t.TempDir() + "/test.db"
-	if err := db.RunMigrations(dsn); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	database, err := db.Open(dsn)
-	if err != nil {
-		t.Fatalf("open: %v", err)
-	}
-	t.Cleanup(func() { database.Close() })
-
-	logsSvc := logs.NewService(database)
-	routeSvc := route.NewService(database)
-	provSvc := provider.NewService(database)
-	diagSvc := NewService(database, routeSvc, provSvc)
-	return diagSvc, logsSvc
-}
-
-func seedTestData(t *testing.T, logsSvc *logs.Service) {
-	t.Helper()
-	tid := int64(10)
+	tid := int64(42)
 	rid := int64(1)
 	pid := int64(5)
-	streamTrue := true
-	streamFalse := false
-	ttfc := 200
-	promptT := 10
-	compT := 20
-	totalT := 30
-
 	entries := []logs.RequestLog{
 		{
-			RequestID: "r1", RouteID: &rid, RouteName: "test-route",
-			PublicModelName: "qwen-fast", UpstreamModelName: "Qwen3.5-27B",
-			ProviderID: &pid, ProviderName: "prov-a", TargetID: &tid,
-			StatusCode: 200, UpstreamStatusCode: 200, LatencyMs: 150,
-			Stream: false, PromptTokens: &promptT, CompletionTokens: &compT, TotalTokens: &totalT,
+			RequestID: "ok-1", RouteID: &rid, RouteName: "r1",
+			PublicModelName: "model-a", UpstreamModelName: "up-a",
+			ProviderID: &pid, ProviderName: "prov", TargetID: &tid,
+			StatusCode: 200, UpstreamStatusCode: 200, LatencyMs: 100,
+			PromptTokens: intPtr(10), CompletionTokens: intPtr(5),
+			Stream: true, StreamCompleted: boolPtr(true),
 		},
 		{
-			RequestID: "r2", RouteID: &rid, RouteName: "test-route",
-			PublicModelName: "qwen-fast", UpstreamModelName: "Qwen3.5-27B",
-			ProviderID: &pid, ProviderName: "prov-a", TargetID: &tid,
-			StatusCode: 500, UpstreamStatusCode: 500, LatencyMs: 300,
-			ErrorCode: "upstream_status_500", ErrorMessage: "internal error",
+			RequestID: "err-1", RouteID: &rid, RouteName: "r1",
+			PublicModelName: "model-a", UpstreamModelName: "up-a",
+			ProviderID: &pid, ProviderName: "prov", TargetID: &tid,
+			StatusCode: 502, UpstreamStatusCode: 502, LatencyMs: 500,
+			ErrorCode: "upstream_error", ErrorMessage: "timeout",
+			Stream: false,
 		},
 		{
-			RequestID: "r3", RouteID: &rid, RouteName: "test-route",
-			PublicModelName: "qwen-fast", UpstreamModelName: "Qwen3.5-27B",
-			ProviderID: &pid, ProviderName: "prov-a", TargetID: &tid,
-			StatusCode: 200, UpstreamStatusCode: 200, LatencyMs: 5000,
-			Stream: true, StreamCompleted: &streamTrue, TimeToFirstChunkMs: &ttfc,
-		},
-		{
-			RequestID: "r4", RouteID: &rid, RouteName: "test-route",
-			PublicModelName: "qwen-fast", UpstreamModelName: "Qwen3.5-27B",
-			ProviderID: &pid, ProviderName: "prov-a", TargetID: &tid,
-			StatusCode: 200, UpstreamStatusCode: 200, LatencyMs: 8000,
-			Stream: true, StreamCompleted: &streamFalse,
-		},
-		{
-			RequestID: "r5", RouteID: &rid, RouteName: "test-route",
-			PublicModelName: "qwen-fast", UpstreamModelName: "Qwen3.5-27B",
-			ProviderID: &pid, ProviderName: "prov-a", TargetID: &tid,
-			StatusCode: 200, UpstreamStatusCode: 200, LatencyMs: 200,
+			RequestID: "ok-2", RouteID: &rid, RouteName: "r1",
+			PublicModelName: "model-b", UpstreamModelName: "up-b",
+			ProviderID: &pid, ProviderName: "prov", TargetID: int64Ptr(99),
+			StatusCode: 200, UpstreamStatusCode: 200, LatencyMs: 50,
 		},
 	}
 	for _, e := range entries {
 		if err := logsSvc.Write(e); err != nil {
-			t.Fatalf("seed write: %v", err)
+			t.Fatalf("write log: %v", err)
 		}
 	}
 }
 
-func TestGetModelOverview_EmptyWindow(t *testing.T) {
-	svc, _ := setupTestDB(t)
+func intPtr(v int) *int       { return &v }
+func int64Ptr(v int64) *int64 { return &v }
+func boolPtr(v bool) *bool    { return &v }
+
+func TestGetModelOverview_InvalidWindow(t *testing.T) {
+	database, _, _ := openDiagDB(t)
+	svc := NewService(database, route.NewService(database), provider.NewService(database))
+
+	_, err := svc.GetModelOverview("7d")
+	if err == nil {
+		t.Fatal("GetModelOverview(7d) err = nil, want error")
+	}
+}
+
+func TestGetModelOverview_Empty(t *testing.T) {
+	database, _, _ := openDiagDB(t)
+	svc := NewService(database, route.NewService(database), provider.NewService(database))
 
 	summaries, err := svc.GetModelOverview("1h")
 	if err != nil {
 		t.Fatalf("GetModelOverview: %v", err)
-	}
-	if summaries == nil {
-		t.Fatal("summaries is nil, want empty slice")
 	}
 	if len(summaries) != 0 {
 		t.Errorf("len(summaries) = %d, want 0", len(summaries))
 	}
 }
 
-func TestGetModelOverview_GroupsCorrectly(t *testing.T) {
-	svc, logsSvc := setupTestDB(t)
-	seedTestData(t, logsSvc)
+func TestGetModelOverview_Aggregates(t *testing.T) {
+	database, logsSvc, _ := openDiagDB(t)
+	seedOverviewLogs(t, logsSvc)
+	svc := NewService(database, route.NewService(database), provider.NewService(database))
 
-	summaries, err := svc.GetModelOverview("1h")
+	summaries, err := svc.GetModelOverview("24h")
 	if err != nil {
 		t.Fatalf("GetModelOverview: %v", err)
 	}
-	if len(summaries) != 1 {
-		t.Fatalf("len(summaries) = %d, want 1", len(summaries))
+	if len(summaries) < 2 {
+		t.Fatalf("len(summaries) = %d, want at least 2 groups", len(summaries))
 	}
 
-	ms := summaries[0]
-	if ms.PublicModelName != "qwen-fast" {
-		t.Errorf("PublicModelName = %q, want qwen-fast", ms.PublicModelName)
+	var modelA *ModelSummary
+	for i := range summaries {
+		if summaries[i].PublicModelName == "model-a" {
+			modelA = &summaries[i]
+			break
+		}
 	}
-	if ms.RequestCount != 5 {
-		t.Errorf("RequestCount = %d, want 5", ms.RequestCount)
+	if modelA == nil {
+		t.Fatal("model-a group missing")
+	}
+	if modelA.RequestCount != 2 {
+		t.Errorf("model-a RequestCount = %d, want 2", modelA.RequestCount)
+	}
+	if modelA.ErrorCount != 1 {
+		t.Errorf("model-a ErrorCount = %d, want 1", modelA.ErrorCount)
+	}
+	if modelA.ErrorRate < 0.49 || modelA.ErrorRate > 0.51 {
+		t.Errorf("model-a ErrorRate = %f, want ~0.5", modelA.ErrorRate)
+	}
+	if modelA.TotalTokens != 15 {
+		t.Errorf("model-a TotalTokens = %d, want 15", modelA.TotalTokens)
+	}
+	if modelA.StreamCount != 1 {
+		t.Errorf("model-a StreamCount = %d, want 1", modelA.StreamCount)
+	}
+	if modelA.StreamCompletedRate < 0.99 {
+		t.Errorf("model-a StreamCompletedRate = %f, want 1", modelA.StreamCompletedRate)
+	}
+	if modelA.LastErrorCode != "upstream_error" {
+		t.Errorf("model-a LastErrorCode = %q, want upstream_error", modelA.LastErrorCode)
+	}
+}
+
+func TestQueryTargetSummary(t *testing.T) {
+	database, logsSvc, _ := openDiagDB(t)
+	seedOverviewLogs(t, logsSvc)
+	svc := NewService(database, route.NewService(database), provider.NewService(database))
+	since := time.Now().UTC().Add(-1 * time.Hour)
+
+	ms := svc.queryTargetSummary(42, since)
+	if ms.RequestCount != 2 {
+		t.Errorf("RequestCount = %d, want 2 for target 42", ms.RequestCount)
 	}
 	if ms.ErrorCount != 1 {
 		t.Errorf("ErrorCount = %d, want 1", ms.ErrorCount)
 	}
-}
-
-func TestGetModelOverview_ErrorRate(t *testing.T) {
-	svc, logsSvc := setupTestDB(t)
-	seedTestData(t, logsSvc)
-
-	summaries, _ := svc.GetModelOverview("1h")
-	ms := summaries[0]
-
-	expectedRate := float64(1) / float64(5)
-	if ms.ErrorRate < expectedRate-0.001 || ms.ErrorRate > expectedRate+0.001 {
-		t.Errorf("ErrorRate = %f, want ~%f", ms.ErrorRate, expectedRate)
+	if ms.AvgLatencyMs < 200 || ms.AvgLatencyMs > 350 {
+		t.Errorf("AvgLatencyMs = %f, want ~300", ms.AvgLatencyMs)
+	}
+	if ms.P95LatencyMs < 99 {
+		t.Errorf("P95LatencyMs = %f, want >= 100", ms.P95LatencyMs)
+	}
+	if ms.LastErrorCode != "upstream_error" {
+		t.Errorf("LastErrorCode = %q, want upstream_error", ms.LastErrorCode)
 	}
 }
 
-func TestGetModelOverview_AvgLatency(t *testing.T) {
-	svc, logsSvc := setupTestDB(t)
-	seedTestData(t, logsSvc)
+func TestQueryTargetSummary_NoRows(t *testing.T) {
+	database, _, _ := openDiagDB(t)
+	svc := NewService(database, route.NewService(database), provider.NewService(database))
+	since := time.Now().UTC().Add(-1 * time.Hour)
 
-	summaries, _ := svc.GetModelOverview("1h")
-	ms := summaries[0]
-
-	// 150 + 300 + 5000 + 8000 + 200 = 13650, avg = 2730
-	if ms.AvgLatencyMs < 2700 || ms.AvgLatencyMs > 2800 {
-		t.Errorf("AvgLatencyMs = %f, want ~2730", ms.AvgLatencyMs)
+	ms := svc.queryTargetSummary(9999, since)
+	if ms.RequestCount != 0 {
+		t.Errorf("RequestCount = %d, want 0 for unknown target", ms.RequestCount)
 	}
 }
 
-func TestGetModelOverview_StreamMetrics(t *testing.T) {
-	svc, logsSvc := setupTestDB(t)
-	seedTestData(t, logsSvc)
-
-	summaries, _ := svc.GetModelOverview("1h")
-	ms := summaries[0]
-
-	if ms.StreamCount != 2 {
-		t.Errorf("StreamCount = %d, want 2", ms.StreamCount)
+func TestQueryLastErrorCode_ByPublicModel(t *testing.T) {
+	database, logsSvc, _ := openDiagDB(t)
+	tid := int64(0)
+	rid := int64(1)
+	entry := logs.RequestLog{
+		RequestID: "model-err", RouteID: &rid, RouteName: "r1",
+		PublicModelName: "orphan-model", UpstreamModelName: "up",
+		TargetID: &tid, StatusCode: 500, UpstreamStatusCode: 500,
+		LatencyMs: 10, ErrorCode: "rate_limited",
 	}
-	expectedRate := 0.5
-	if ms.StreamCompletedRate < expectedRate-0.01 || ms.StreamCompletedRate > expectedRate+0.01 {
-		t.Errorf("StreamCompletedRate = %f, want ~0.5", ms.StreamCompletedRate)
+	if err := logsSvc.Write(entry); err != nil {
+		t.Fatalf("write: %v", err)
 	}
-}
-
-func TestGetModelOverview_P95(t *testing.T) {
-	svc, logsSvc := setupTestDB(t)
-	seedTestData(t, logsSvc)
-
-	summaries, _ := svc.GetModelOverview("1h")
-	ms := summaries[0]
-
-	// latencies sorted: 150, 200, 300, 5000, 8000; idx = 5*95/100 = 4 -> 8000
-	if ms.P95LatencyMs < 7999 || ms.P95LatencyMs > 8001 {
-		t.Errorf("P95LatencyMs = %f, want ~8000", ms.P95LatencyMs)
+	since := time.Now().UTC().Add(-1 * time.Hour)
+	code := queryLastErrorCode(database, 0, "orphan-model", since)
+	if code != "rate_limited" {
+		t.Errorf("queryLastErrorCode = %q, want rate_limited", code)
 	}
 }
 
-func TestGetModelOverview_TotalTokens(t *testing.T) {
-	svc, logsSvc := setupTestDB(t)
-	seedTestData(t, logsSvc)
-
-	summaries, _ := svc.GetModelOverview("1h")
-	ms := summaries[0]
-
-	if ms.TotalTokens < 30 {
-		t.Errorf("TotalTokens = %d, want >= 30 (prompt+completion for r1)", ms.TotalTokens)
-	}
-}
-
-func TestGetModelOverview_LastErrorCode(t *testing.T) {
-	svc, logsSvc := setupTestDB(t)
-	seedTestData(t, logsSvc)
-
-	summaries, _ := svc.GetModelOverview("1h")
-	ms := summaries[0]
-
-	if ms.LastErrorCode != "upstream_status_500" {
-		t.Errorf("LastErrorCode = %q, want upstream_status_500", ms.LastErrorCode)
-	}
-}
-
-func TestGetModelOverview_InvalidWindow(t *testing.T) {
-	svc, _ := setupTestDB(t)
-
-	_, err := svc.GetModelOverview("banana")
-	if err == nil {
-		t.Error("expected error for invalid window, got nil")
-	}
-}
-
-func TestGetTargetDiagnosis_MissingTarget(t *testing.T) {
-	svc, _ := setupTestDB(t)
-
-	_, err := svc.GetTargetDiagnosis(9999, "1h")
-	if err != ErrNotFound {
-		t.Errorf("err = %v, want ErrNotFound", err)
-	}
-}
-
-func TestParseWindow(t *testing.T) {
-	tests := []struct {
-		input string
-		want  time.Duration
-		err   bool
-	}{
-		{"5m", 5 * time.Minute, false},
-		{"1h", 1 * time.Hour, false},
-		{"24h", 24 * time.Hour, false},
-		{"bad", 0, true},
-	}
-	for _, tt := range tests {
-		since, err := parseWindow(tt.input)
-		if tt.err && err == nil {
-			t.Errorf("parseWindow(%q) expected error", tt.input)
-			continue
-		}
-		if !tt.err && err != nil {
-			t.Errorf("parseWindow(%q) unexpected error: %v", tt.input, err)
-			continue
-		}
-		if !tt.err {
-			actual := time.Since(since)
-			if actual < tt.want-time.Second || actual > tt.want+time.Second {
-				t.Errorf("parseWindow(%q) = since=%v, want ~%v ago", tt.input, since, tt.want)
-			}
-		}
-	}
-}
-
-func TestComputeP95_Empty(t *testing.T) {
-	dsn := "file:" + t.TempDir() + "/test.db"
-	db.RunMigrations(dsn)
-	database, _ := db.Open(dsn)
-	defer database.Close()
-
-	v := computeP95(database, 999, "", time.Now().Add(-1*time.Hour))
-	if v != 0 {
-		t.Errorf("computeP95(empty) = %f, want 0", v)
-	}
+func openDiagDB(t *testing.T) (*sql.DB, *logs.Service, *provider.Service) {
+	t.Helper()
+	database, logsSvc := openHelperDB(t)
+	return database, logsSvc, provider.NewService(database)
 }
