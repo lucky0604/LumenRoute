@@ -10,31 +10,61 @@ import (
 	"time"
 
 	"lumenroute/internal/apikey"
+	"lumenroute/internal/capture"
 	"lumenroute/internal/logs"
 	"lumenroute/internal/metrics"
+	"lumenroute/internal/project"
 	"lumenroute/internal/route"
 )
 
+const maxProxyBodySize = 10 * 1024 * 1024
+
 type Service struct {
-	routeService  *route.Service
-	apiKeyService *apikey.Service
-	logService    *logs.Service
-	recorder      metrics.Recorder
-	proxyAuthMode string
-	client        *http.Client
+	routeService       *route.Service
+	apiKeyService      *apikey.Service
+	logService         *logs.Service
+	captureService     *capture.Service
+	projectService     *project.Service
+	recorder           metrics.Recorder
+	proxyAuthMode      string
+	captureEnabled     bool
+	captureMaxBodySize int
+	cache              *projCache
+	client             *http.Client
 }
 
-func NewService(rs *route.Service, aks *apikey.Service, ls *logs.Service, proxyAuthMode string, rec metrics.Recorder) *Service {
-	return &Service{
-		routeService:  rs,
-		apiKeyService: aks,
-		logService:    ls,
-		recorder:      rec,
-		proxyAuthMode: proxyAuthMode,
+type ServiceConfig struct {
+	ProxyAuthMode      string
+	CaptureEnabled     bool
+	CaptureMaxBodySize int
+}
+
+func NewService(rs *route.Service, aks *apikey.Service, ls *logs.Service, rec metrics.Recorder, cfg ServiceConfig) *Service {
+	s := &Service{
+		routeService:       rs,
+		apiKeyService:      aks,
+		logService:         ls,
+		recorder:           rec,
+		proxyAuthMode:      cfg.ProxyAuthMode,
+		captureEnabled:     cfg.CaptureEnabled,
+		captureMaxBodySize: cfg.CaptureMaxBodySize,
+		cache:              newProjCache(60 * time.Second),
 		client: &http.Client{
 			Timeout: 120 * time.Second,
 		},
 	}
+	return s
+}
+
+// SetCaptureService wires the capture subsystem after construction.
+func (s *Service) SetCaptureService(cs *capture.Service, ps *project.Service) {
+	s.captureService = cs
+	s.projectService = ps
+}
+
+// InvalidateProjectCache evicts a project from the in-memory config cache.
+func (s *Service) InvalidateProjectCache(projectID int64) {
+	s.cache.invalidate(projectID)
 }
 
 func (s *Service) ListModels(w http.ResponseWriter, _ *http.Request) {
@@ -68,9 +98,13 @@ func (s *Service) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxProxyBodySize))
 	if err != nil {
 		writeError(w, 400, "invalid_request_error", "Failed to read request body")
+		return
+	}
+	if int64(len(body)) >= maxProxyBodySize {
+		writeError(w, 413, "invalid_request_error", "Request body too large")
 		return
 	}
 
@@ -111,18 +145,24 @@ func (s *Service) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preserve original client body before model rewrite (for capture)
+	clientBody := make([]byte, len(body))
+	copy(clientBody, body)
+
+	requestID := logs.GenerateRequestID("")
+
 	req["model"] = target.UpstreamModelName
 	reqBody, _ := json.Marshal(req)
 
 	streamMode, _ := req["stream"].(bool)
 	if streamMode {
-		s.proxyStream(w, r, target, reqBody, rt)
+		s.proxyStream(w, r, target, reqBody, rt, requestID, clientBody)
 		return
 	}
-	s.proxyNonStream(w, r, target, reqBody, rt)
+	s.proxyNonStream(w, r, target, reqBody, rt, requestID, clientBody)
 }
 
-func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte, rt *route.Route) {
+func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte, rt *route.Route, requestID string, clientBody []byte) {
 	upstreamReq, err := s.buildUpstreamRequest(target, body, r)
 	if err != nil {
 		writeError(w, 502, "upstream_error", "Failed to build upstream request")
@@ -133,6 +173,7 @@ func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target 
 	resp, err := s.client.Do(upstreamReq)
 	if err != nil {
 		s.writeLog(logParams{
+			RequestID: requestID,
 			Request: r, Route: rt, Target: target,
 			UpstreamStatusCode: 502,
 			LatencyMs:          time.Since(start).Milliseconds(),
@@ -145,9 +186,10 @@ func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target 
 	defer resp.Body.Close()
 	latency := time.Since(start).Milliseconds()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxProxyBodySize))
 
 	s.writeLog(logParams{
+		RequestID: requestID,
 		Request: r, Route: rt, Target: target,
 		UpstreamStatusCode: resp.StatusCode,
 		LatencyMs:          latency,
@@ -157,19 +199,51 @@ func (s *Service) proxyNonStream(w http.ResponseWriter, r *http.Request, target 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.StatusCode)
 	w.Write(respBody)
+
+	var projectID int64
+	if rt.ProjectID != nil {
+		projectID = *rt.ProjectID
+	}
+	if projectID > 0 {
+		ti := extractTokenUsage(respBody)
+		entry := capture.CaptureEntry{
+			RequestID:         requestID,
+			ProjectID:         projectID,
+			RouteName:         rt.Name,
+			PublicModelName:   rt.PublicModelName,
+			UpstreamModelName: target.UpstreamModelName,
+			ProviderName:      target.ProviderName,
+			Stream:            false,
+			StatusCode:        resp.StatusCode,
+			LatencyMs:         int(latency),
+			RequestBody:       json.RawMessage(clientBody),
+			ResponseBody:      json.RawMessage(respBody),
+		}
+		if ti != nil {
+			entry.PromptTokens = ti.PromptTokens
+			entry.CompletionTokens = ti.CompletionTokens
+		}
+		s.maybeCapture(entry)
+	}
 }
 
-func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte, rt *route.Route) {
+func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *route.RouteTarget, body []byte, rt *route.Route, requestID string, clientBody []byte) {
 	upstreamReq, err := s.buildUpstreamRequest(target, body, r)
 	if err != nil {
 		writeError(w, 502, "upstream_error", "Failed to build upstream request")
 		return
 	}
 
+	var projectID int64
+	if rt.ProjectID != nil {
+		projectID = *rt.ProjectID
+	}
+
 	start := time.Now()
 	resp, err := s.client.Do(upstreamReq)
 	if err != nil {
 		s.writeLog(logParams{
+			RequestID: requestID,
 			Request: r, Route: rt, Target: target,
 			UpstreamStatusCode: 502,
 			LatencyMs:          time.Since(start).Milliseconds(),
@@ -183,17 +257,35 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
-		respBody, _ := io.ReadAll(resp.Body)
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxProxyBodySize))
+		latency := time.Since(start).Milliseconds()
 		s.writeLog(logParams{
+			RequestID: requestID,
 			Request: r, Route: rt, Target: target,
 			UpstreamStatusCode: resp.StatusCode,
-			LatencyMs:          time.Since(start).Milliseconds(),
+			LatencyMs:          latency,
 			Stream:             true,
 			ResponseBody:       respBody,
 		})
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
 		w.Write(respBody)
+
+		if projectID > 0 {
+			s.maybeCapture(capture.CaptureEntry{
+				RequestID:         requestID,
+				ProjectID:         projectID,
+				RouteName:         rt.Name,
+				PublicModelName:   rt.PublicModelName,
+				UpstreamModelName: target.UpstreamModelName,
+				ProviderName:      target.ProviderName,
+				Stream:            true,
+				StatusCode:        resp.StatusCode,
+				LatencyMs:         int(latency),
+				RequestBody:       json.RawMessage(clientBody),
+				ResponseBody:      json.RawMessage(respBody),
+			})
+		}
 		return
 	}
 
@@ -210,6 +302,7 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		s.writeLog(logParams{
+			RequestID: requestID,
 			Request: r, Route: rt, Target: target,
 			UpstreamStatusCode: resp.StatusCode,
 			LatencyMs:          time.Since(start).Milliseconds(),
@@ -224,12 +317,16 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 	var accumulated strings.Builder
 	for scanner.Scan() {
 		w.Write(scanner.RawLine())
-		w.Write([]byte("\n"))
+		w.Write([]byte("\n\n"))
 		flusher.Flush()
 		delta := scanner.LastDelta()
 		if delta != "" {
 			accumulated.WriteString(delta)
 		}
+	}
+	if scanner.Completed() {
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
 	}
 
 	sr := &StreamResult{
@@ -256,12 +353,40 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 	}
 
 	s.writeLog(logParams{
+		RequestID: requestID,
 		Request: r, Route: rt, Target: target,
 		UpstreamStatusCode: resp.StatusCode,
 		LatencyMs:          sr.LatencyMs,
 		Stream:             true,
 		StreamResult:       sr,
 	})
+
+	if projectID > 0 {
+		reconstructed := reconstructStreamResponse(accumulated.String(), sr, scanner, clientBody)
+		ttfc := int(sr.TimeToFirstChunkMs)
+		entry := capture.CaptureEntry{
+			RequestID:         requestID,
+			ProjectID:         projectID,
+			RouteName:         rt.Name,
+			PublicModelName:   rt.PublicModelName,
+			UpstreamModelName: target.UpstreamModelName,
+			ProviderName:      target.ProviderName,
+			Stream:            true,
+			StreamCompleted:   scanner.Completed(),
+			StatusCode:        resp.StatusCode,
+			LatencyMs:         int(sr.LatencyMs),
+			TTFCMs:            &ttfc,
+			RequestBody:       json.RawMessage(clientBody),
+			ResponseBody:      json.RawMessage(reconstructed),
+		}
+		if sr.PromptTokens > 0 {
+			entry.PromptTokens = &sr.PromptTokens
+		}
+		if sr.CompletionTokens > 0 {
+			entry.CompletionTokens = &sr.CompletionTokens
+		}
+		s.maybeCapture(entry)
+	}
 }
 
 func (s *Service) writeLog(p logParams) {

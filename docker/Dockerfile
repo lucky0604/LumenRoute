@@ -31,6 +31,6 @@ RUN mkdir -p /app/data
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -sf http://localhost:8080/api/auth/login || exit 1
+  CMD curl -sf http://localhost:8080/v1/models || exit 1
 
 CMD ["lumenroute"]

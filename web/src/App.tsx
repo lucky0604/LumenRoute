@@ -12,6 +12,8 @@ import HealthSummaryPage from "./pages/HealthSummaryPage";
 import ModelPerformancePage from "./pages/ModelPerformancePage";
 import TargetDiagnosisPage from "./pages/TargetDiagnosisPage";
 import ControlCenterPage from "./pages/ControlCenterPage";
+import ProjectsPage from "./pages/ProjectsPage";
+import ProjectDetailPage from "./pages/ProjectDetailPage";
 import AdminLayout from "./components/AdminLayout";
 
 const THEME_STORAGE_KEY = "lumenroute-theme";
@@ -48,6 +50,8 @@ function App() {
             <Route path="/control-center" element={<ControlCenterPage />} />
             <Route path="/providers" element={<ProvidersPage />} />
             <Route path="/routes" element={<RoutesPage />} />
+            <Route path="/projects" element={<ProjectsPage />} />
+            <Route path="/projects/:id" element={<ProjectDetailPage />} />
             <Route path="/api-keys" element={<ApiKeysPage />} />
             <Route path="/request-logs" element={<RequestLogsPage />} />
             <Route path="/model-performance" element={<ModelPerformancePage />} />

@@ -16,13 +16,13 @@ func computeP95(db *sql.DB, targetID int64, publicModel string, since time.Time)
 		rows, err = db.Query(`
 			SELECT latency_ms FROM request_logs
 			WHERE target_id = ? AND created_at >= ? AND latency_ms > 0
-			ORDER BY latency_ms DESC LIMIT 1000
+			ORDER BY latency_ms ASC LIMIT 10000
 		`, targetID, sinceStr)
 	} else if publicModel != "" {
 		rows, err = db.Query(`
 			SELECT latency_ms FROM request_logs
 			WHERE public_model_name = ? AND created_at >= ? AND latency_ms > 0
-			ORDER BY latency_ms DESC LIMIT 1000
+			ORDER BY latency_ms ASC LIMIT 10000
 		`, publicModel, sinceStr)
 	} else {
 		return 0

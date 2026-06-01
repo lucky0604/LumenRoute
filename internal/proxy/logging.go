@@ -9,6 +9,7 @@ import (
 )
 
 type logParams struct {
+	RequestID          string
 	Request            *http.Request
 	Route              *route.Route
 	Target             *route.RouteTarget
@@ -22,8 +23,12 @@ type logParams struct {
 }
 
 func buildRequestLog(p logParams) logs.RequestLog {
+	rid := p.RequestID
+	if rid == "" {
+		rid = logs.GenerateRequestID("")
+	}
 	entry := logs.RequestLog{
-		RequestID:          logs.GenerateRequestID(""),
+		RequestID:          rid,
 		RouteID:            &p.Route.ID,
 		RouteName:          p.Route.Name,
 		PublicModelName:    p.Route.PublicModelName,

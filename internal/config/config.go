@@ -2,6 +2,7 @@ package config
 
 import (
 	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -22,6 +23,9 @@ type Config struct {
 	RequestLogRetentionDays int
 	MetricsEnabled          bool
 	MetricsPath             string
+	CaptureEnabled          bool
+	CaptureMaxBodySize      int
+	CaptureBasePath         string
 }
 
 func init() {
@@ -75,7 +79,22 @@ func Load() *Config {
 		RequestLogRetentionDays:  7,
 		MetricsEnabled:           true,
 		MetricsPath:              env("LUMENROUTE_METRICS_PATH", "/metrics"),
+		CaptureEnabled:          env("LUMENROUTE_CAPTURE_ENABLED", "false") == "true",
+		CaptureMaxBodySize:      envInt("LUMENROUTE_CAPTURE_MAX_BODY_SIZE", 1048576),
+		CaptureBasePath:         env("LUMENROUTE_CAPTURE_BASE_PATH", "data/captures"),
 	}
+}
+
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	var n int
+	if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
+		return fallback
+	}
+	return n
 }
 
 func env(key, fallback string) string {

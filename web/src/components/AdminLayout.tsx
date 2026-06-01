@@ -14,6 +14,7 @@ import {
   DashboardOutlined,
   BugOutlined,
   MenuOutlined,
+  ExperimentOutlined,
 } from "@ant-design/icons";
 import type { ThemeMode } from "../theme/tokens";
 
@@ -36,6 +37,7 @@ const menuItems = [
     children: [
       { key: "/providers", icon: <CloudServerOutlined />, label: "Providers" },
       { key: "/routes", icon: <NodeIndexOutlined />, label: "Routes" },
+      { key: "/projects", icon: <ExperimentOutlined />, label: "Projects" },
       { key: "/api-keys", icon: <KeyOutlined />, label: "API Keys" },
     ],
   },

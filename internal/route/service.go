@@ -13,6 +13,8 @@ type Route struct {
 	Description     string    `json:"description"`
 	Enabled         bool      `json:"enabled"`
 	RequireAuth     bool      `json:"require_auth"`
+	ProjectID       *int64    `json:"project_id,omitempty"`
+	ProjectName     string    `json:"project_name,omitempty"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -44,9 +46,9 @@ func NewService(db *sql.DB) *Service {
 
 func (s *Service) CreateRoute(r Route) (int64, error) {
 	res, err := s.db.Exec(`
-		INSERT INTO routes (name, description, public_model_name, enabled, require_auth, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))
-	`, r.Name, r.Description, r.PublicModelName, r.Enabled, r.RequireAuth)
+		INSERT INTO routes (name, description, public_model_name, enabled, require_auth, project_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+	`, r.Name, r.Description, r.PublicModelName, r.Enabled, r.RequireAuth, r.ProjectID)
 	if err != nil {
 		return 0, err
 	}
@@ -55,8 +57,11 @@ func (s *Service) CreateRoute(r Route) (int64, error) {
 
 func (s *Service) ListRoutes() ([]Route, error) {
 	rows, err := s.db.Query(`
-		SELECT id, name, public_model_name, description, enabled, require_auth, created_at, updated_at
-		FROM routes WHERE deleted_at IS NULL ORDER BY created_at DESC
+		SELECT r.id, r.name, r.public_model_name, r.description, r.enabled, r.require_auth,
+		       r.project_id, COALESCE(p.name, ''), r.created_at, r.updated_at
+		FROM routes r
+		LEFT JOIN projects p ON p.id = r.project_id AND p.deleted_at IS NULL
+		WHERE r.deleted_at IS NULL ORDER BY r.created_at DESC
 	`)
 	if err != nil {
 		return nil, err
@@ -66,10 +71,18 @@ func (s *Service) ListRoutes() ([]Route, error) {
 	for rows.Next() {
 		var r Route
 		var desc sql.NullString
-		if err := rows.Scan(&r.ID, &r.Name, &r.PublicModelName, &desc, &r.Enabled, &r.RequireAuth, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		var projID sql.NullInt64
+		if err := rows.Scan(&r.ID, &r.Name, &r.PublicModelName, &desc, &r.Enabled, &r.RequireAuth,
+			&projID, &r.ProjectName, &r.CreatedAt, &r.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if desc.Valid { r.Description = desc.String }
+		if desc.Valid {
+			r.Description = desc.String
+		}
+		if projID.Valid {
+			pid := projID.Int64
+			r.ProjectID = &pid
+		}
 		rs = append(rs, r)
 	}
 	return rs, rows.Err()
@@ -78,34 +91,53 @@ func (s *Service) ListRoutes() ([]Route, error) {
 func (s *Service) GetRoute(id int64) (*Route, error) {
 	var r Route
 	var desc sql.NullString
+	var projID sql.NullInt64
 	if err := s.db.QueryRow(`
-		SELECT id, name, public_model_name, description, enabled, require_auth, created_at, updated_at
-		FROM routes WHERE id = ? AND deleted_at IS NULL
-	`, id).Scan(&r.ID, &r.Name, &r.PublicModelName, &desc, &r.Enabled, &r.RequireAuth, &r.CreatedAt, &r.UpdatedAt); err != nil {
+		SELECT r.id, r.name, r.public_model_name, r.description, r.enabled, r.require_auth,
+		       r.project_id, COALESCE(p.name, ''), r.created_at, r.updated_at
+		FROM routes r
+		LEFT JOIN projects p ON p.id = r.project_id AND p.deleted_at IS NULL
+		WHERE r.id = ? AND r.deleted_at IS NULL
+	`, id).Scan(&r.ID, &r.Name, &r.PublicModelName, &desc, &r.Enabled, &r.RequireAuth,
+		&projID, &r.ProjectName, &r.CreatedAt, &r.UpdatedAt); err != nil {
 		return nil, err
 	}
-	if desc.Valid { r.Description = desc.String }
+	if desc.Valid {
+		r.Description = desc.String
+	}
+	if projID.Valid {
+		pid := projID.Int64
+		r.ProjectID = &pid
+	}
 	return &r, nil
 }
 
 func (s *Service) FindByModelName(modelName string) (*Route, error) {
 	var r Route
 	var desc sql.NullString
+	var projID sql.NullInt64
 	if err := s.db.QueryRow(`
-		SELECT id, name, public_model_name, description, enabled, require_auth, created_at, updated_at
+		SELECT id, name, public_model_name, description, enabled, require_auth, project_id, created_at, updated_at
 		FROM routes WHERE public_model_name = ? AND deleted_at IS NULL
-	`, modelName).Scan(&r.ID, &r.Name, &r.PublicModelName, &desc, &r.Enabled, &r.RequireAuth, &r.CreatedAt, &r.UpdatedAt); err != nil {
+	`, modelName).Scan(&r.ID, &r.Name, &r.PublicModelName, &desc, &r.Enabled, &r.RequireAuth,
+		&projID, &r.CreatedAt, &r.UpdatedAt); err != nil {
 		return nil, err
 	}
-	if desc.Valid { r.Description = desc.String }
+	if desc.Valid {
+		r.Description = desc.String
+	}
+	if projID.Valid {
+		pid := projID.Int64
+		r.ProjectID = &pid
+	}
 	return &r, nil
 }
 
 func (s *Service) UpdateRoute(id int64, r Route) error {
 	_, err := s.db.Exec(`
-		UPDATE routes SET name=?, description=?, enabled=?, require_auth=?, updated_at=datetime('now')
+		UPDATE routes SET name=?, description=?, enabled=?, require_auth=?, project_id=?, updated_at=datetime('now')
 		WHERE id=? AND deleted_at IS NULL
-	`, r.Name, r.Description, r.Enabled, r.RequireAuth, id)
+	`, r.Name, r.Description, r.Enabled, r.RequireAuth, r.ProjectID, id)
 	return err
 }
 

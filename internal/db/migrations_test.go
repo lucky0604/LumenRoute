@@ -15,7 +15,7 @@ func TestRunMigrations(t *testing.T) {
 	}
 	defer db.Close()
 
-	tables := []string{"users", "api_keys", "providers", "routes", "route_targets", "request_logs", "schema_migrations"}
+	tables := []string{"users", "api_keys", "providers", "routes", "route_targets", "request_logs", "schema_migrations", "projects", "request_captures"}
 	for _, name := range tables {
 		var count int
 		if err := db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?", name).Scan(&count); err != nil {

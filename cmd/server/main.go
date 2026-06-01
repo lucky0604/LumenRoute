@@ -15,11 +15,13 @@ import (
 	"lumenroute/internal/api"
 	"lumenroute/internal/apikey"
 	"lumenroute/internal/auth"
+	"lumenroute/internal/capture"
 	"lumenroute/internal/config"
 	"lumenroute/internal/db"
 	"lumenroute/internal/diagnostics"
 	"lumenroute/internal/logs"
 	"lumenroute/internal/metrics"
+	"lumenroute/internal/project"
 	"lumenroute/internal/provider"
 	"lumenroute/internal/proxy"
 	"lumenroute/internal/route"
@@ -47,8 +49,22 @@ func main() {
 	routeSvc := route.NewService(database)
 	apiKeySvc := apikey.NewService(database, cfg.APIKeyPrefix)
 	logsSvc := logs.NewService(database)
+	projectSvc := project.NewService(database)
+	captureStore := capture.NewStore(database)
+	captureSvc := capture.NewService(capture.Config{
+		Enabled:     cfg.CaptureEnabled,
+		BasePath:    cfg.CaptureBasePath,
+		MaxBodySize: cfg.CaptureMaxBodySize,
+		ChannelSize: 256,
+		BatchSize:   100,
+	}, captureStore)
 	metricsReg := metrics.NewRegistry()
-	proxySvc := proxy.NewService(routeSvc, apiKeySvc, logsSvc, cfg.ProxyAuthMode, metricsReg)
+	proxySvc := proxy.NewService(routeSvc, apiKeySvc, logsSvc, metricsReg, proxy.ServiceConfig{
+		ProxyAuthMode:      cfg.ProxyAuthMode,
+		CaptureEnabled:     cfg.CaptureEnabled,
+		CaptureMaxBodySize: cfg.CaptureMaxBodySize,
+	})
+	proxySvc.SetCaptureService(captureSvc, projectSvc)
 	diagSvc := diagnostics.NewService(database, routeSvc, providerSvc)
 
 	handlers := &api.AdminHandlers{
@@ -57,10 +73,20 @@ func main() {
 		APIKeys:   apiKeySvc,
 		Logs:      logsSvc,
 	}
+	projectHandlers := &api.ProjectHandlers{
+		Projects:         projectSvc,
+		OnProjectChanged: proxySvc.InvalidateProjectCache,
+	}
 
 	diagHandler := &api.DiagnosticsHandler{Service: diagSvc}
 
 	sessionManager := auth.NewSessionManager(database, cfg.ServerHost != "0.0.0.0", 24*time.Hour)
+	captureHandlers := &api.CaptureHandlers{
+		CaptureStore:   captureStore,
+		Projects:       projectSvc,
+		SessionManager: sessionManager,
+		CaptureBase:    cfg.CaptureBasePath,
+	}
 	mux := http.NewServeMux()
 
 	// Public auth endpoints
@@ -105,8 +131,19 @@ func main() {
 	// Admin CRUD endpoints (session-protected)
 	adminMux := http.NewServeMux()
 	registerAdminRoutes(adminMux, handlers)
+	registerProjectRoutes(adminMux, projectHandlers, captureHandlers)
 	api.RegisterDiagnosticsRoutes(adminMux, diagHandler)
 	adminHandler := sessionManager.Middleware(adminMux)
+
+	// Export endpoint uses dual auth (session OR export token), so it is
+	// mounted on the outer mux and bypasses session middleware.
+	mux.HandleFunc("/api/projects/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/captures/export") && (r.Method == http.MethodGet || r.Method == http.MethodPost) {
+			captureHandlers.ExportCaptures(w, r)
+			return
+		}
+		adminHandler.ServeHTTP(w, r)
+	})
 	mux.Handle("/api/", adminHandler)
 
 	// Proxy endpoints (API key auth checked per-route)
@@ -138,10 +175,14 @@ func main() {
 		})
 	}
 
-	// Start background schedulers
+	// Start capture service and background schedulers
+	if cfg.CaptureEnabled {
+		captureSvc.Start()
+	}
 	quit := make(chan struct{})
 	scheduler.StartHealthChecker(providerSvc, cfg.HealthCheckIntervalSec, quit, metricsReg)
 	scheduler.StartLogCleanup(database, cfg.RequestLogRetentionDays, quit)
+	scheduler.StartCaptureCleanup(projectSvc, captureStore, cfg.CaptureBasePath, quit)
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.ServerPort,
@@ -163,151 +204,19 @@ func main() {
 
 	<-sig
 	log.Println("shutting down server...")
-	close(quit)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("server forced to shutdown: %v", err)
+		log.Printf("server forced to shutdown: %v", err)
+	}
+
+	close(quit)
+
+	if cfg.CaptureEnabled {
+		log.Println("draining capture pipeline...")
+		captureSvc.Close()
 	}
 	log.Println("server exited")
 }
 
-func registerAdminRoutes(mux *http.ServeMux, h *api.AdminHandlers) {
-	// Providers
-	mux.HandleFunc("/api/providers", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			h.ListProviders(w, r)
-		case http.MethodPost:
-			h.CreateProvider(w, r)
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(405)
-			w.Write([]byte(`{"error":"method not allowed"}`))
-		}
-	})
-	mux.HandleFunc("/api/providers/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/check") && r.Method == http.MethodPost {
-			h.CheckProvider(w, r)
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			h.GetProvider(w, r)
-		case http.MethodPut:
-			h.UpdateProvider(w, r)
-		case http.MethodDelete:
-			h.DeleteProvider(w, r)
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(405)
-			w.Write([]byte(`{"error":"method not allowed"}`))
-		}
-	})
-
-	// Routes
-	mux.HandleFunc("/api/routes", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			h.ListRoutes(w, r)
-		case http.MethodPost:
-			h.CreateRoute(w, r)
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(405)
-			w.Write([]byte(`{"error":"method not allowed"}`))
-		}
-	})
-	mux.HandleFunc("/api/routes/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(r.URL.Path, "/targets") {
-			switch r.Method {
-			case http.MethodGet:
-				h.ListTargets(w, r)
-			case http.MethodPost:
-				h.CreateTarget(w, r)
-			default:
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(405)
-				w.Write([]byte(`{"error":"method not allowed"}`))
-			}
-			return
-		}
-		switch r.Method {
-		case http.MethodGet:
-			h.GetRoute(w, r)
-		case http.MethodPut:
-			h.UpdateRoute(w, r)
-		case http.MethodDelete:
-			h.DeleteRoute(w, r)
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(405)
-			w.Write([]byte(`{"error":"method not allowed"}`))
-		}
-	})
-
-	// Route Targets (direct)
-	mux.HandleFunc("/api/route-targets/", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodPut:
-			h.UpdateTarget(w, r)
-		case http.MethodDelete:
-			h.DeleteTarget(w, r)
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(405)
-			w.Write([]byte(`{"error":"method not allowed"}`))
-		}
-	})
-
-	// API Keys
-	mux.HandleFunc("/api/api-keys", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			h.ListAPIKeys(w, r)
-		case http.MethodPost:
-			h.CreateAPIKey(w, r)
-		default:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(405)
-			w.Write([]byte(`{"error":"method not allowed"}`))
-		}
-	})
-	mux.HandleFunc("/api/api-keys/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasSuffix(r.URL.Path, "/disable") && r.Method == http.MethodPost {
-			h.DisableAPIKey(w, r)
-			return
-		}
-		if strings.HasSuffix(r.URL.Path, "/enable") && r.Method == http.MethodPost {
-			h.EnableAPIKey(w, r)
-			return
-		}
-		if r.Method == http.MethodDelete {
-			h.DeleteAPIKey(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(405)
-		w.Write([]byte(`{"error":"method not allowed"}`))
-	})
-
-	// Request Logs
-	mux.HandleFunc("/api/request-logs", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			h.ListLogs(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(405)
-		w.Write([]byte(`{"error":"method not allowed"}`))
-	})
-	mux.HandleFunc("/api/request-logs/", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			h.GetLog(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(405)
-		w.Write([]byte(`{"error":"method not allowed"}`))
-	})
-}
