@@ -10,6 +10,7 @@ const { Title, Text } = Typography;
 interface Log {
   id: number; request_id: string; public_model_name: string; provider_name: string;
   status_code: number; latency_ms: number; stream: boolean; total_tokens: number | null;
+  time_to_first_chunk_ms: number | null; stream_completed: boolean | null;
   error_code: string; error_message: string; upstream_model_name: string; client_ip: string; created_at: string;
   request_body: string; response_body: string;
 }
@@ -98,7 +99,13 @@ function RequestLogsPage() {
             <Descriptions.Item label="Provider">{detailLog.provider_name}</Descriptions.Item>
             <Descriptions.Item label="Status">{detailLog.status_code}</Descriptions.Item>
             <Descriptions.Item label="Latency">{detailLog.latency_ms}ms</Descriptions.Item>
+            {detailLog.stream && detailLog.time_to_first_chunk_ms !== null && (
+              <Descriptions.Item label="TTFT">{detailLog.time_to_first_chunk_ms}ms</Descriptions.Item>
+            )}
             <Descriptions.Item label="Stream">{detailLog.stream ? "Yes" : "No"}</Descriptions.Item>
+            {detailLog.stream && detailLog.stream_completed !== null && (
+              <Descriptions.Item label="Stream Completed">{detailLog.stream_completed ? "Yes" : "No (中断)"}</Descriptions.Item>
+            )}
             <Descriptions.Item label="Tokens">{detailLog.total_tokens ?? "-"}</Descriptions.Item>
             <Descriptions.Item label="Client IP">{detailLog.client_ip}</Descriptions.Item>
             {detailLog.error_code && <Descriptions.Item label="Error">{detailLog.error_code}: {detailLog.error_message}</Descriptions.Item>}
