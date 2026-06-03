@@ -41,7 +41,18 @@ type SSEScanner struct {
 }
 
 func NewSSEScanner(r io.Reader) *SSEScanner {
-	return &SSEScanner{reader: r, buf: make([]byte, 4096), startTime: time.Now()}
+	return NewSSEScannerWithStart(r, time.Now())
+}
+
+// NewSSEScannerWithStart creates a scanner with an explicit start time for accurate TTFT measurement.
+// The start time should be when the request was sent, not when the scanner was created,
+// so that time_to_first_chunk_ms includes connection and request send latency.
+func NewSSEScannerWithStart(r io.Reader, start time.Time) *SSEScanner {
+	return &SSEScanner{
+		reader:    r,
+		buf:       make([]byte, 4096),
+		startTime: start,
+	}
 }
 
 func (s *SSEScanner) Scan() bool {

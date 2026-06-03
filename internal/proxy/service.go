@@ -318,7 +318,7 @@ func (s *Service) proxyStream(w http.ResponseWriter, r *http.Request, target *ro
 		return
 	}
 
-	scanner := NewSSEScanner(resp.Body)
+	scanner := NewSSEScannerWithStart(resp.Body, start)
 	var accumulated strings.Builder
 	for scanner.Scan() {
 		w.Write(scanner.RawLine())

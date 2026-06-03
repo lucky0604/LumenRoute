@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSSEScanner_MultipleDeltas(t *testing.T) {
@@ -120,5 +121,38 @@ func TestSSEScanner_RawLine(t *testing.T) {
 	scanner.Scan()
 	if !bytes.Equal(scanner.RawLine(), []byte(line)) {
 		t.Errorf("RawLine() = %q, want %q", scanner.RawLine(), line)
+	}
+}
+
+func TestSSEScannerWithStart(t *testing.T) {
+	data := strings.Join([]string{
+		`data: {"choices":[{"delta":{"content":"first"}}]}`,
+		`data: {"choices":[{"delta":{"content":"second"}}]}`,
+		`data: [DONE]`,
+	}, "\n") + "\n"
+
+	start := time.Now().Add(-50 * time.Millisecond)
+	scanner := NewSSEScannerWithStart(bytes.NewBufferString(data), start)
+
+	if !scanner.Scan() {
+		t.Fatal("Scan() = false on first chunk")
+	}
+	if scanner.TimeToFirstChunkMs() < 45 {
+		t.Errorf("TimeToFirstChunkMs() = %dms, want >= 45ms (should include pre-scanner latency)", scanner.TimeToFirstChunkMs())
+	}
+	if scanner.LastDelta() != "first" {
+		t.Errorf("LastDelta() = %q, want first", scanner.LastDelta())
+	}
+}
+
+func TestNewSSEScannerBackwardCompat(t *testing.T) {
+	data := `data: {"choices":[{"delta":{"content":"test"}}]}` + "\n"
+	scanner := NewSSEScanner(bytes.NewBufferString(data))
+
+	if !scanner.Scan() {
+		t.Fatal("Scan() = false")
+	}
+	if scanner.TimeToFirstChunkMs() < 0 {
+		t.Errorf("TimeToFirstChunkMs() = %dms, want >= 0", scanner.TimeToFirstChunkMs())
 	}
 }
