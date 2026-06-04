@@ -67,4 +67,10 @@ agent_flow/
 .opencode/
 .claude/
 .sisyphus/
+.omo/
 tasks/
+
+# === AI Tool Configs (personal) ===
+.mcp.json
+opencode.jsonc
+.codegraph/
