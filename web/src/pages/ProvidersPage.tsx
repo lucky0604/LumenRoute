@@ -132,7 +132,18 @@ function ProvidersPage() {
             <Select options={[{ label: "OpenAI-compatible", value: "openai" }]} />
           </Form.Item>
           <Form.Item name="engine" label="Engine" initialValue="vllm">
-            <Select options={[{ label: "vLLM", value: "vllm" }, { label: "SGLang", value: "sglang" }, { label: "Ollama", value: "ollama" }, { label: "OpenAI", value: "openai" }]} />
+            <Select 
+              options={[{ label: "vLLM", value: "vllm" }, { label: "SGLang", value: "sglang" }, { label: "Ollama", value: "ollama" }, { label: "OpenAI", value: "openai" }]}
+              onChange={(value) => {
+                const defaultPaths: Record<string, string> = {
+                  vllm: "/v1/models",
+                  sglang: "/model_info",
+                  ollama: "/api/tags",
+                  openai: "/v1/models",
+                };
+                form.setFieldsValue({ health_check_path: defaultPaths[value] || "" });
+              }}
+            />
           </Form.Item>
           <Form.Item name="base_url" label="Base URL" rules={[{ required: true }]}>
             <Input placeholder="e.g. http://192.168.1.100:8000" />
@@ -140,8 +151,8 @@ function ProvidersPage() {
           <Form.Item name="auth_mode" label="Auth Mode" initialValue="none">
             <Select options={[{ label: "None", value: "none" }, { label: "API Key", value: "api_key" }]} />
           </Form.Item>
-          <Form.Item name="health_check_path" label="Health Check Path">
-            <Input placeholder="e.g. /health (default: /models)" />
+          <Form.Item name="health_check_path" label="Health Check Path" extra="Leave empty to use engine-specific defaults">
+            <Input placeholder="e.g. /health (auto-detected by engine)" />
           </Form.Item>
           <Form.Item name="description" label="Description"><Input.TextArea rows={2} /></Form.Item>
         </Form>

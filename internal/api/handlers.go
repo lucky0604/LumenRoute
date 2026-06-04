@@ -162,7 +162,7 @@ func (h *AdminHandlers) CheckProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	healthPath := p.HealthCheckPath
 	if healthPath == "" {
-		healthPath = "/models"
+		healthPath = provider.GetDefaultHealthPath(p.Engine)
 	}
 	checkURL := p.BaseURL + healthPath
 	resp, err := http.Get(checkURL)

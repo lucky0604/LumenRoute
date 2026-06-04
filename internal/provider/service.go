@@ -26,6 +26,21 @@ type Provider struct {
 	UpdatedAt               time.Time        `json:"updated_at"`
 }
 
+func GetDefaultHealthPath(engine string) string {
+	switch engine {
+	case "vllm":
+		return "/v1/models"
+	case "sglang":
+		return "/model_info"
+	case "ollama":
+		return "/api/tags"
+	case "openai":
+		return "/v1/models"
+	default:
+		return "/models"
+	}
+}
+
 type Service struct {
 	db *sql.DB
 }

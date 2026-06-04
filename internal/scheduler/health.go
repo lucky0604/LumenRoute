@@ -30,7 +30,7 @@ func StartHealthChecker(ps *provider.Service, intervalSeconds int, quit <-chan s
 					if !p.Enabled {
 						continue
 					}
-					status, code, latency, lastErr := checkProvider(client, p.BaseURL, p.HealthCheckPath)
+					status, code, latency, lastErr := checkProvider(client, p.BaseURL, p.HealthCheckPath, p.Engine)
 					ps.UpdateHealth(p.ID, status, code, latency, lastErr)
 					if status == "healthy" {
 						healthy++
@@ -48,9 +48,9 @@ func StartHealthChecker(ps *provider.Service, intervalSeconds int, quit <-chan s
 	}()
 }
 
-func checkProvider(client *http.Client, baseURL, healthPath string) (status string, code int, latency int, lastErr string) {
+func checkProvider(client *http.Client, baseURL, healthPath, engine string) (status string, code int, latency int, lastErr string) {
 	if healthPath == "" {
-		healthPath = "/models"
+		healthPath = provider.GetDefaultHealthPath(engine)
 	}
 	url := baseURL + healthPath
 	start := time.Now()
